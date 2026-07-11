@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>호감도 만렙 프로젝트</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cherry+Bomb+One&family=Jua&family=Gowun+Dodum&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -1881,7 +1883,8 @@ function eulReul(n) {
   if (c >= 0xAC00 && c <= 0xD7A3) return ((c - 0xAC00) % 28 > 0) ? '을' : '를';
   return '을(를)';
 }
-let affection = 0;               // 시작 호감도 (0에서 시작, 상한 없음)
+const START_AFFECTION = 10;      // 모든 페르소나 공통 기본 호감도
+let affection = START_AFFECTION; // 시작 호감도 (상한 없음)
 let isGameOver = false;          // 강제종료 상태
 const history = [];              // 대화 기록
 
@@ -2003,7 +2006,7 @@ function buildSystemPrompt(profile) {
   const sceneRule = CHARACTER.sceneRule ? " " + CHARACTER.sceneRule : "";
   return persona + details + suggestive + sceneRule +
     " 이것은 호감도 시스템이 있는 비주얼노벨 게임입니다. 현재 호감도는 " + affection + " 입니다." +
-    " 호감도는 0에서 시작하고 상한은 없으며, 음수가 되면 캐릭터가 떠나고 게임이 끝납니다." +
+    " 호감도는 10에서 시작하고 상한은 없으며, 음수가 되면 캐릭터가 떠나고 게임이 끝납니다." +
     " 사용자의 말투와 배려에 따라 호감도가 오르내립니다." +
     " 호감도 변화는 상황의 심각도에 맞춰 판정하세요:" +
     " (1) 평범한 대화는 대부분 0 또는 +1~+2입니다." +
@@ -2201,6 +2204,19 @@ function parseAIResponse(raw) {
   return { reply: fallback || '…', affection_delta: 0, reason: '', emotion: "기본" };
 }
 
+/* 연속된 같은 역할 메시지를 하나로 합침
+   — gemma 등 엄격한 채팅 템플릿은 user/assistant가 반드시 번갈아야 해서,
+     오류로 끊긴 턴이 기록에 남으면 이후 모든 요청이 거부되는 것을 방지 */
+function mergeAlternating(list) {
+  const out = [];
+  for (const m of list) {
+    const prev = out[out.length - 1];
+    if (prev && prev.role === m.role) prev.content += '\n' + m.content;
+    else out.push({ role: m.role, content: m.content });
+  }
+  return out;
+}
+
 async function askAI(userText) {
   const profile = getActiveProfile();
   const systemPrompt = buildSystemPrompt(profile);
@@ -2211,14 +2227,25 @@ async function askAI(userText) {
   const maxHistory = (profile && parseInt(profile.maxHistory)) ? parseInt(profile.maxHistory) : 30;
   let msgs = history.slice(-maxHistory);
   while (msgs.length && msgs[0].role !== 'user') msgs.shift();
+  msgs = mergeAlternating(msgs);
 
-  // 멀티PC 클라이언트 모드 : A(호스트)로 송신 → A의 gemma가 이 페르소나를 연산 → 응답 수신
-  const raw = (MULTI.mode === 'client')
-    ? await multiAsk(systemPrompt, msgs)
-    : await callProvider(profile, systemPrompt, msgs);
+  let raw;
+  try {
+    // 멀티PC 클라이언트 모드 : A(호스트)로 송신 → A의 gemma가 이 페르소나를 연산 → 응답 수신
+    raw = (MULTI.mode === 'client')
+      ? await multiAsk(systemPrompt, msgs)
+      : await callProvider(profile, systemPrompt, msgs);
+  } catch (e) {
+    // 실패한 턴의 user 메시지를 되돌려 기록 오염(같은 역할 연속)을 방지
+    const last = history[history.length - 1];
+    if (last && last.role === 'user' && last.content === userText) history.pop();
+    throw e;
+  }
   const parsed = parseAIResponse(raw);
 
-  history.push({ role: "assistant", content: JSON.stringify(parsed) });
+  // reason은 토스트 표시용이라 기록에서 제외 — 매 턴 전송되는 토큰 절약
+  history.push({ role: "assistant", content: JSON.stringify(
+    { reply: parsed.reply, affection_delta: parsed.affection_delta, emotion: parsed.emotion }) });
   return parsed;
 }
 
@@ -2321,7 +2348,8 @@ async function send() {
 }
 
 sendBtn.addEventListener('click', send);
-input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+// 한글 IME 조합 중 Enter(isComposing)는 무시 — 조합 미완성 텍스트 전송·중복 전송 방지
+input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) send(); });
 
 /* ── 리셋 기능 ── */
 const resetModal = document.getElementById('resetModal');
@@ -2349,7 +2377,7 @@ function clearStorageKeepDev() {
 btnYes.addEventListener('click', () => {
   resetModal.classList.remove('show');   // 팝업 즉시 닫기
   history.length = 0;
-  affection = 0;
+  affection = START_AFFECTION;
   clearStorageKeepDev();
   goMainPage();
 });
@@ -2365,7 +2393,7 @@ document.getElementById('gameoverX').addEventListener('click', () => {
   // 팝업을 즉시 닫음 (화면 전환 후에도 남아있지 않도록)
   document.getElementById('gameoverModal').classList.remove('show');
   history.length = 0;
-  affection = 0;
+  affection = START_AFFECTION;
   clearStorageKeepDev();
   goMainPage();   // → 이름 입력 인트로부터 다시
 });
@@ -2629,7 +2657,7 @@ document.getElementById('devRevive').addEventListener('click', () => {
   input.placeholder = "하고 싶은 말을 입력하세요...";
   sprite.classList.remove('runaway');
   document.getElementById('gameoverModal').classList.remove('show');
-  if (affection < 0) { affection = 0; updateGauge(); refreshAffUI(); }
+  if (affection < 0) { affection = START_AFFECTION; updateGauge(); refreshAffUI(); }
   showLine(CHARACTER.name, '"…그래도, 한 번 더 이야기해 볼까."', false);
 });
 
@@ -3259,7 +3287,7 @@ if (MULTI.mode === 'client' && MULTI.autoEnter &&
 function initChat() {
   USER_NAME = localStorage.getItem('playerName') || "나";
   history.length = 0;
-  affection = 0;
+  affection = START_AFFECTION;
   isGameOver = false;
   warnedNoJson = false;
   input.disabled = false;
