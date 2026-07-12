@@ -1598,6 +1598,12 @@
             이후 대화를 보내면 자동으로 A에 송신 → A의 gemma가 담당 페르소나로 연산 →
             이 컴퓨터가 자기 몫의 답을 수신해 표시합니다.
             (사이트를 https로 열면 http://A주소가 브라우저에 차단되니 반드시 로컬 파일로 여세요)<br>
+            <b>다른 망(외부망)에서 접속하는 경우</b> A에서 <code>ngrok http 1234</code> 또는
+            <code>cloudflared tunnel --url http://localhost:1234</code>를 실행해 나온
+            <b>https 주소</b>를 위 서버 주소 칸에 입력하세요. ngrok 무료 플랜의 브라우저 경고 페이지는
+            자동으로 우회하며, https 터널 주소는 사이트를 https로 열어도 차단되지 않습니다.
+            연결이 안 되면 ① 터널 프로그램이 켜져 있는지 ② 주소를 새로 발급받았는지(무료 플랜은 재시작 시 주소가 바뀜)
+            ③ "A 서버 연결 확인" 버튼의 오류 메시지를 확인하세요.<br>
             여러 컴퓨터가 동시에 질문하면 A가 순서대로 연산하므로 답이 조금 늦어질 수 있으며,
             이때는 자동으로 재시도합니다. 멀티PC 모드가 켜져 있으면 "AI 연동" 탭의 프로필 대신 이 설정이 사용됩니다.
           </p>
@@ -2107,7 +2113,14 @@ async function callProvider(profile, systemPrompt, msgs) {
           messages: messages
         })
       });
-      const d = await r.json();
+      // ngrok 경고 페이지·HTML 오류 페이지가 오면 JSON 파싱이 깨지므로 안전하게 처리
+      const rawText = await r.text();
+      let d;
+      try { d = JSON.parse(rawText); }
+      catch (parseErr) {
+        throw new Error(tag + ': 서버 응답이 JSON이 아닙니다 (HTTP ' + r.status + '): ' + rawText.slice(0, 120) +
+          ' — ngrok 경고 페이지이거나 API 주소가 아닐 수 있습니다. 터널이 켜져 있는지, https 주소가 맞는지 확인하세요');
+      }
       if (d.error) throw new Error(tag + ': ' + (d.error.message || JSON.stringify(d.error)));
       if (!d.choices || !d.choices[0] || !d.choices[0].message) {
         throw new Error(tag + ': 응답 형식이 올바르지 않습니다 (HTTP ' + r.status + ') — 서버가 보낸 내용: ' +
@@ -2120,10 +2133,13 @@ async function callProvider(profile, systemPrompt, msgs) {
       return c || '';
     }
 
+    // gemma 계열(gemma-2-9b-it 등)은 채팅 템플릿이 system 역할을 지원하지 않아
+    // "Conversation roles must alternate user/assistant" 오류가 나므로 처음부터 합쳐 보냄
+    const supportsSystem = !/gemma/i.test(p.model || '');
     try {
-      return await doCall(true);
+      return await doCall(supportsSystem);
     } catch (e) {
-      if (/system|role|template|jinja/i.test(String(e.message))) {
+      if (supportsSystem && /system|role|template|jinja|alternate/i.test(String(e.message))) {
         logError(tag, 'system 역할 미지원 모델로 보여 첫 메시지에 합쳐 재시도합니다: ' + e.message);
         return await doCall(false);
       }
@@ -3028,7 +3044,9 @@ const MultiLink = {
     const o = opts || {};
     const maxTokens = o.maxTokens || 700;
     const temp = (o.temperature === undefined) ? 0.8 : o.temperature;
-    let useSystemRole = true;   // gemma 계열 일부 서버는 system 역할 미지원 → 실패 시 합쳐 재시도
+    // gemma 계열(gemma-2 포함)은 채팅 템플릿이 system 역할을 지원하지 않아
+    // "Conversation roles must alternate" 오류가 나므로 처음부터 첫 user 메시지에 합쳐 보냄
+    let useSystemRole = !/gemma/i.test(MULTI.model || MULTI_DEFAULT_MODEL);
 
     const buildBody = () => {
       const messages = useSystemRole
@@ -3049,15 +3067,25 @@ const MultiLink = {
     for (let attempt = 0; attempt <= 3; attempt++) {
       if (attempt > 0) await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
       try {
+        const headers = { 'Content-Type': 'application/json' };
+        // ngrok 터널 주소면 브라우저 경고 페이지 대신 API 응답을 받도록 우회 헤더 추가
+        if (/ngrok/i.test(base)) headers['ngrok-skip-browser-warning'] = 'true';
         const r = await fetch(base + '/v1/chat/completions', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: headers,
           body: buildBody()
         });
-        const d = await r.json();
+        // ngrok 경고 페이지·HTML 오류 페이지가 오면 JSON 파싱이 깨지므로 안전하게 처리
+        const rawText = await r.text();
+        let d;
+        try { d = JSON.parse(rawText); }
+        catch (parseErr) {
+          throw new Error('서버 응답이 JSON이 아닙니다 (HTTP ' + r.status + '): ' + rawText.slice(0, 120) +
+            ' — ngrok 경고 페이지이거나 주소가 API 서버가 아닐 수 있습니다. 터널이 켜져 있는지 확인하세요');
+        }
         if (d.error) {
           const m = String((d.error && d.error.message) || JSON.stringify(d.error));
-          if (useSystemRole && /system|role|template|jinja/i.test(m)) {
+          if (useSystemRole && /system|role|template|jinja|alternate/i.test(m)) {
             logError('멀티PC 송신', 'system 역할 미지원 서버로 보여 첫 메시지에 합쳐 재시도합니다: ' + m);
             useSystemRole = false;
             attempt--;
@@ -3200,8 +3228,16 @@ document.getElementById('multiCheck').addEventListener('click', async () => {
   multiStatusMsg('A 서버에 연결하는 중…');
   try {
     const base = MultiLink.base();
-    const r = await fetch(base + '/v1/models');
-    const d = await r.json();
+    const headers = {};
+    if (/ngrok/i.test(base)) headers['ngrok-skip-browser-warning'] = 'true';
+    const r = await fetch(base + '/v1/models', { headers: headers });
+    const rawText = await r.text();
+    let d;
+    try { d = JSON.parse(rawText); }
+    catch (parseErr) {
+      throw new Error('서버 응답이 JSON이 아닙니다 (HTTP ' + r.status + '): ' + rawText.slice(0, 120) +
+        ' — 주소가 LM Studio API가 맞는지, ngrok 터널이 켜져 있는지 확인하세요');
+    }
     const ids = (d.data || []).map(m => m.id).filter(Boolean);
     if (!ids.length) {
       multiStatusMsg('⚠ 연결은 됐지만 로드된 모델이 없습니다. A의 LM Studio에서 gemma 모델을 먼저 로드하세요.');
