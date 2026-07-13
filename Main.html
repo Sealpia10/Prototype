@@ -191,8 +191,63 @@
     line-height: 1.75;
     color: var(--text-dark);
     word-break: keep-all;
+    white-space: pre-line;
   }
   .dialogue-box.user .dialogue-text { color: var(--user-text); }
+
+  /* 스토리모드 : 내레이션 전용 스타일 */
+  .dialogue-box.narration {
+    border-color: #b79ee0;
+    background:
+      radial-gradient(rgba(255,255,255,.35) 12%, transparent 13%) 0 0 / 26px 26px,
+      radial-gradient(rgba(255,255,255,.35) 12%, transparent 13%) 13px 13px / 26px 26px,
+      linear-gradient(180deg, #ece3fa, #d9c8f2);
+  }
+  .dialogue-box.narration .dialogue-text { color: #3a2b52; font-style: italic; }
+  .name-tag.narration { background: linear-gradient(180deg, #cbb8ec, #a988e0); }
+
+  /* 스토리모드 : 선택지 버튼 */
+  .story-choices {
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    padding: 0 16px 18px;
+    z-index: 5;
+  }
+  .story-choices.show { display: flex; }
+  .story-choice-btn {
+    font-family: 'Jua', sans-serif;
+    font-size: 14.5px;
+    color: #4a2b3a;
+    background: linear-gradient(180deg, #ffe3ef, #ffc3dc);
+    border: 2px solid #fff;
+    border-radius: 16px;
+    padding: 12px 18px;
+    text-align: left;
+    line-height: 1.4;
+    cursor: pointer;
+    box-shadow: 0 3px 10px rgba(255,110,175,.35);
+    transition: transform .15s ease;
+  }
+  .story-choice-btn:hover { transform: translateY(-2px); }
+
+  /* 스토리모드 : 엔딩 액션 */
+  .story-end-actions {
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    padding: 0 16px 18px;
+    z-index: 5;
+  }
+  .story-end-actions.show { display: flex; }
+  .story-ending-label {
+    font-family: 'Jua', sans-serif;
+    font-size: 14px;
+    color: #ffe3f1;
+    text-align: center;
+    padding: 4px 0 2px;
+  }
+
 
   /* 진행 표시 ▶ */
   .next-arrow {
@@ -1234,6 +1289,11 @@
     <button id="sendBtn">보내기</button>
   </div>
 
+  <!-- 스토리모드 전용 : 선택지 -->
+  <div class="story-choices" id="storyChoices"></div>
+  <!-- 스토리모드 전용 : 엔딩 액션 -->
+  <div class="story-end-actions" id="storyEndActions"></div>
+
 </div>
 </div><!-- /screen-chat -->
 
@@ -1687,8 +1747,14 @@
     pendingCharId = null;
   });
   document.getElementById('btnStoryMode').addEventListener('click', () => {
-    // 스토리모드: 상황·선택지 콘텐츠가 준비되면 여기에 연결
-    document.getElementById('storySoonNote').style.display = 'block';
+    // 스토리모드: STORY_DATA에 콘텐츠가 등록된 캐릭터는 바로 진입, 없으면 "준비 중" 안내
+    if (pendingCharId && typeof STORY_DATA !== 'undefined' && STORY_DATA[pendingCharId]) {
+      document.getElementById('modeModal').classList.remove('show');
+      enterChat(pendingCharId, 'story');
+      pendingCharId = null;
+    } else {
+      document.getElementById('storySoonNote').style.display = 'block';
+    }
   });
   document.getElementById('btnFreeMode').addEventListener('click', () => {
     document.getElementById('modeModal').classList.remove('show');
@@ -1944,6 +2010,591 @@ const CHARACTERS = {
 };
 let activeCharId = 'tsuki';   // enterChat()에서 전환
 
+/* ═══════════════════════════════════
+   스토리모드 콘텐츠 (츠키)
+   각 노드: speaker(없으면 내레이션) / text / next(선형 진행)
+            또는 choices([{label, next}]) / affection(도달 시 호감도 변화)
+            / ending(true면 결말) / endingType('good'|'bad') / endingLabel
+═══════════════════════════════════ */
+const STORY_DATA = {
+  tsuki: {
+    start: 's1_narr',
+    nodes: {
+      s1_narr: {
+        text: `[Scene 1] 음악실 앞, 비밀의 시작 (수요일)
+
+복도를 지나던 주인공은 음악실에서 흘러나오는 감미로운 기타 소리에 이끌려 문을 살짝 연다. 그곳에는 베이스를 메고 혼자 기타 연습을 하던 츠키 선배가 있다.`,
+        choices: [
+          { label: '계속 듣는다', next: 's1_a' },
+          { label: '돌아간다', next: 's1_b' }
+        ]
+      },
+      s1_a: {
+        speaker: '츠키',
+        text: `츠키와 눈이 마주친다. 평소와 달리 깜짝 놀라 당황하더니, 이내 손가락을 입술에 대고 능글맞게 웃으며 다가온다.
+"비밀로 해줘? 다른 사람한테 말하면 안 돼~?"`,
+        affection: 3,
+        next: 's2_narr'
+      },
+      s1_b: {
+        text: `발을 떼는 순간, 츠키가 문을 벌컥 열고 물을 마시러 나온다. 눈이 마주치자마자 생글생글 웃으며 직진 플러팅을 던진다.
+"안녕~? 너 나 좋아해서 훔쳐보고 있었지?"
+주인공이 당황하는 모습을 보며 즐거워한다.`,
+        next: 's2_narr'
+      },
+      s2_narr: {
+        text: `[Scene 2] 교문 앞, 콘서트 전단지 (일주일 뒤)
+
+방과 후, 츠키 선배가 밴드부 부원들과 단독 콘서트 전단지를 돌리고 있다. 멀리서 주인공을 발견하자마자 하던 일을 멈추고 급하게 달려와 전단지를 쥐여준다.
+"오늘 내 공연, 무조건 보러 와야 돼. 안 오면 삐질 거야?"`,
+        choices: [
+          { label: '동의 - 당연히 가야죠!', next: 's2_agree' },
+          { label: '거절', next: 's2_refuse' }
+        ]
+      },
+      s2_agree: {
+        speaker: '츠키',
+        text: `츠키가 만족스러운 듯 주인공의 볼을 살짝 꼬집으며 말한다.
+"기대해, 널 위한 특등석을 준비해 둘 테니까"`,
+        affection: 5,
+        next: 's3_narr1'
+      },
+      s2_refuse: {
+        text: `주인공이 머뭇거리자, 츠키가 훅 다가와 주인공의 손목을 덥석 잡는다. 눈을 반짝이며 애교 섞인 압박을 준다.
+"...진짜 안 올 거야? 응? 와주라..."`,
+        choices: [
+          { label: '장난이에요, 당연히 가죠 (Y)', next: 's2_refuse_y' },
+          { label: '오늘 마후유랑 서점 가기로 해서... (N)', next: 's2_refuse_n' }
+        ]
+      },
+      s2_refuse_y: {
+        speaker: '츠키',
+        text: `츠키가 안심한 듯 숨을 내쉬며 티키타카를 주고받는다.
+"아하하, 깜짝 놀랐잖아! 역시 우리 후배님이야~"`,
+        affection: 4,
+        next: 's3_narr1'
+      },
+      s2_refuse_n: {
+        speaker: '츠키',
+        text: `츠키의 눈빛이 순간 차갑게 식는다. 손목을 스르륵 놓으며 경멸 섞인 미소를 짓는다.
+"도서관에 있는 녀석이랑? 아, 그래? ...그래, 가봐."`,
+        affection: -15,
+        ending: true,
+        endingType: 'bad',
+        endingLabel: '💔 BAD ENDING — 실패 루트'
+      },
+      s3_narr1: {
+        text: `[Scene 3] 방과 후 콘서트, 저격 윙크
+
+공연장에 도착한 주인공. 무대 위에서 베이스를 치며 폭발적인 보컬을 선보이는 츠키의 갭모에에 완전히 압도된다.`,
+        next: 's3_narr2'
+      },
+      s3_narr2: {
+        text: `노래 도중, 츠키가 객석의 주인공을 정확히 아이콘택트 하더니 찡긋 윙크를 날린다. 주변 남학생들이 "와, 나 방금 여신님이랑 눈마주침!", "츠키 아내가 되는 건 바로 나다"라며 웅성거리자, 주인공은 얼굴이 붉어진 채 '나한테 한 거... 맞나? 아니겠지...' 하고 부정하려 애쓴다.`,
+        next: 's4_narr'
+      },
+      s4_narr: {
+        text: `[Scene 4] 백허그와 훅 들어간 카운터
+
+공연이 끝난 후 집으로 걸어가는데, 뒤에서 누군가 와락 주인공을 백허그한다. 츠키 선배다.
+"오늘 내 공연 어땠어? 설렜지? 좋았지? 누나 멋있었어?"
+특유의 능글거림으로 놀려대며, 주인공이 당황해하자 재밌다는 듯 깔깔 웃는다.`,
+        choices: [
+          { label: '선배... 그게... 닿아있어요...', next: 's4_a' },
+          { label: '선배의 손을 풀고 뒤돌아 안으며 "네, 설렜어요"', next: 's4_b' }
+        ]
+      },
+      s4_a: {
+        speaker: '츠키',
+        text: `츠키가 순간 앗차 싶었는지 볼을 붉히며 손은 풀지 않은 채 부끄러워한다.
+"뒤돌아보지 말고 그냥 계속 걸어가... 바보야..."`,
+        affection: 10,
+        next: 's5_narr1'
+      },
+      s4_b: {
+        text: `츠키 선배 킬러 대사. 능글맞던 츠키가 완전히 고장 난다. 얼굴이 터질 것처럼 빨개져서 "어...//어...??"하고 말을 잇지 못한다.
+그렇게 심장이 터질 것 같은 분위기 속에서 3분 동안 포옹을 이어가다가, 츠키가 기어들어 가는 목소리로 옷자락을 만지작거리며 말한다.
+"...이제, 이제 가자..."`,
+        affection: 30,
+        next: 's5_narr1'
+      },
+      s5_narr1: {
+        text: `[Scene 5] 데이트 신청 거절, 그리고 충격의 메이드 카페
+
+츠키를 집 앞까지 데려다주며 주말 놀이공원 데이트를 신청하지만, 츠키는 거절한다.
+"미안, 그날은 선약(알바)이 있어서 안 될 것 같아..."
+자괴감에 빠진 주인공은 옆집 아저씨의 "새로 생긴 메이드 카페에 엄청난 에이스가 있다"는 추천을 받고 기분 전환 겸 카페 문을 연다.`,
+        next: 's5_narr2'
+      },
+      s5_narr2: {
+        text: `문이 열리며 메이드복 차림의 츠키와 눈이 마주친다.
+"오카에리나사이, 고슈진사마(다녀오셨어요, 주인님)!"`,
+        choices: [
+          { label: '네... 시선을 어디 둘지 모를 정도로 예뻐요', next: 's5_good1' },
+          { label: '(자켓을 열어 모모카 굿즈 티셔츠를 보여준다)', next: 's5_bad' }
+        ]
+      },
+      s5_good1: {
+        speaker: '츠키',
+        text: `츠키가 완전히 당황해 뚝딱거리다가, 이내 프로답게 베시시 웃으며 도발한다.
+"어때? 내 옷 예뻐?"
+주인공의 진심 어린 대답에 츠키는 얼굴을 붉히며 고개를 숙인다. 그 후 오므라이스 씨 맛있어져라 세트를 시켰다.`,
+        affection: 8,
+        next: 's5_good2'
+      },
+      s5_good2: {
+        text: `오므라이스 씨 맛있어져라 세트를 가져온 츠키와 함께 양손으로 하트를 만든다.
+"오이시쿠나레 오이시쿠나레~ 모에모에 큥!"
+주인공이 자각 없이 "귀엽다..."라고 중얼거리자, 츠키는 부끄러움을 참지 못하고 도망치듯 백룸으로 뛰어 들어간다. 그 모습을 보고 주인공은 그녀를 향한 사랑을 확신한다.`,
+        affection: 5,
+        next: 's6_narr'
+      },
+      s5_bad: {
+        speaker: '츠키',
+        text: `"그 정도인가요?" 자켓을 열어 모모카 굿즈 티셔츠를 보여준다.
+츠키는 눈을 가늘게 뜨며 차갑게 경멸하더니 다른 테이블로 가버린다.
+"아, 그래...? 오타쿠 후배였구나...?"`,
+        affection: -20,
+        ending: true,
+        endingType: 'bad',
+        endingLabel: '💔 BAD ENDING — 오타쿠 경멸 루트'
+      },
+      s6_narr: {
+        text: `[Scene 6] 귀갓길의 약속
+
+주인공은 메이드 카페 앞에서 츠키의 퇴근을 기다린다. 같이 걸어가며 카페 알바를 하는 이유를 묻자, 츠키는 속내를 털어놓는다.
+"다음 주 학교 축제 때 우리 밴드 무대 장치랑 의상비 보태려고 열심히 모으는 중이야"
+그러더니 베시시 웃으며 슬쩍 손을 잡는다.
+"저기... 저번에 놀이공원 못 가준 거 미안해서 그런데, 축제 끝나면 나랑 데이트해 줄래?"`,
+        choices: [
+          { label: '긍정', next: 's6_a' },
+          { label: '장난', next: 's6_b' }
+        ]
+      },
+      s6_a: {
+        speaker: '츠키',
+        text: `"네, 그때는 꼭 놀이공원 가요."
+츠키가 신나서 주인공의 팔에 팔짱을 꽉 낀다.`,
+        affection: 6,
+        next: 's7_narr1'
+      },
+      s6_b: {
+        text: `"아니요, 싫은데요?"
+츠키가 눈을 크게 뜨며 진심으로 상처받은 표정을 지으려 하자, 주인공이 받아친다.
+"장난이에요 선배, 진심인 줄 알았어요?"
+츠키는 "하아!? 너 진짜 복수하는 거지?! 두고 봐!" 하면서도 입꼬리를 숨기지 못한다.`,
+        affection: 4,
+        next: 's7_narr1'
+      },
+      s7_narr1: {
+        text: `[Scene 7] 축제 당일, 최고의 피크와 돌발 사고
+
+학교 축제의 하이라이트인 밴드부 공연. 츠키 선배는 메이드 카페 알바비로 맞춘 화려한 무대 의상을 입고 베이스를 메고 등장해 압도적인 무대를 선보인다. 무대 위에서도 관객석의 주인공을 바라보며 생글생글 웃는 여유를 부리는 츠키.`,
+        next: 's7_narr2'
+      },
+      s7_narr2: {
+        text: `공연이 막바지에 다다라 분위기가 최고조에 달한 순간, 무대 상단에 부실하게 고정되어 있던 대형 조명이 삐걱거리더니 츠키 선배의 머리 위로 중심을 잃고 떨어지기 시작한다.
+연주에 집중하느라 위를 보지 못한 츠키는 상황을 전혀 모르는 상태. 관객석 맨 앞줄에서 이를 발견한 주인공이 본능적으로 무대 위로 뛰어올라 '츠키 선배!'라고 외치며 츠키를 와락 껴안고 바닥을 구른다.`,
+        next: 's7_narr3'
+      },
+      s7_narr3: {
+        text: `쿵-! 하는 굉음과 함께 장치가 박살 나고, 무대는 순식간에 비명소리로 가득 찬다.`,
+        next: 's7_5_narr1'
+      },
+      s7_5_narr1: {
+        text: `[Scene 7.5] 고장 난 테토녀, 그리고 간호
+
+다행히 주인공의 빠른 대처로 츠키는 다치지 않았지만, 주인공은 츠키를 감싸다가 팔이나 어깨 쪽에 타박상을 입게 된다. 축제는 그대로 중단되고 소동이 마무리된 후, 두 사람은 츠키의 자취방으로 향한다.`,
+        next: 's7_5_narr2'
+      },
+      s7_5_narr2: {
+        text: `항상 당차고 능글맞게 "누나 어때?"라며 플러팅을 던지던 츠키가, 이번에는 완전히 겁에 질려 눈물이 그렁그렁한 채로 고장 나 버린다. 구급상자를 들고 온 츠키의 손이 덜덜 떨리는 것을 본 주인공이 오히려 츠키를 다독인다.`,
+        next: 's7_5_narr3'
+      },
+      s7_5_narr3: {
+        speaker: '츠키',
+        text: `츠키는 주인공의 상처에 약을 발라주다가 결국 참았던 눈물을 터뜨리며 가슴팍에 머리를 묻고 엉엉 운다.
+"바보야... 너 그러다 진짜 큰일 날 뻔했단 말이야... 나 때문에, 나 때문에 네가..."
+주인공이 부상당한 팔로 츠키를 부드럽게 안아주며 "선배가 안 다쳐서 다행이에요"라고 진심으로 말하자, 츠키는 얼굴이 새빨개진 채 완전히 마음을 빼앗긴 눈빛을 보낸다.`,
+        affection: 20,
+        next: 'final_narr1'
+      },
+      final_narr1: {
+        text: `[Final Scene] 완전한 연인, 코스프레 집데이트 (순애 엔딩)
+
+며칠 뒤, 주인공의 부상도 거의 다 낫고 분위기가 진정된 주말. 츠키는 "놀이공원 데이트할까"라며 메시지를 보냈다. 그러면서 일단 자기 집에 와서 같이 가자고 했다. 이후 나는 츠키의 집 앞으로 갔다.`,
+        next: 'final_narr2'
+      },
+      final_narr2: {
+        text: `츠키는 나에게 자기 방으로 오라고 한 뒤, 음료를 가지고 오겠다고 했다. 음료를 가지며 들어온 츠키의 모습은 다름 아닌 바니걸을 입고 있었다.`,
+        next: 'final_narr3'
+      },
+      final_narr3: {
+        speaker: '츠키',
+        text: `평소처럼 능글맞게 장난치려 하지만, 축제 날 주인공이 자신을 구해준 순간이 자꾸 떠올라 심장이 터질 것 같은 츠키. 얼굴을 붉히고 손가락을 꼼지락거리며 기어들어 가는 목소리로 말한다.
+"그... 날 구해주다가 다치게 한 벌이자, 보답이야... 오늘 하루 동안은 네가 시키는 거 뭐든 다 들을 테니까... 고슈진사마(주인님)... 제대로 봐 줘..."
+그러면서 귓속말로 속삭인다.
+"오늘 집에 아무도 없어."
+능글맞던 선배가 완전히 나만의 '메이드'이자 연인으로 거듭나는 순간, 주인공은 모든 기력이 빠지고 츠키는 피부에 광택이 났다.`,
+        affection: 15,
+        ending: true,
+        endingType: 'good',
+        endingLabel: '🌸 GOOD ENDING — 완전한 연인'
+      }
+    }
+  },
+  mafuyu: {
+    start: 'mf_s1_narr',
+    nodes: {
+      mf_s1_narr: {
+        text: `[Scene 1] 첫 만남, 손이 스치는 순간
+
+도서관 깊숙한 서가. 한 소녀가 높은 곳에 있는 《오페라의 유령》을 꺼내려고 가디건 소매를 걷은 채 낑낑대며 점프하고 있다. 남주가 뒤에서 스윽 손을 뻗어 책을 대신 꺼내준다.
+책을 건네주는 과정에서 남주의 손가락이 소녀의 손에 살짝 스친다. 소녀는 순간 얼굴이 확 빨개지며 팔을 교차해 방어 자세를 취한다.
+"앗……! 고, 고맙…… 어라? 나, 남자……?!"
+"(책을 품에 꼬옥 안고 뒷걸음질 치며) 오, 오지 마세요! 가까이 오시면 소리 칠 거예여…!"`,
+        choices: [
+          { label: '미안, 놀라게 하려던 건 아냐. 여기 책 받아.', next: 'mf_s1_a' },
+          { label: '귀엽네. 키가 작아서 안 닿았던 거야?', next: 'mf_s1_b' }
+        ]
+      },
+      mf_s1_a: {
+        speaker: '마후유',
+        text: `소녀가 조심조심 책만 낚아챈다.
+"그, 그럼 전 이만……!"
+빠른 걸음으로 사라지지만, 경계심이 아주 살짝 풀린다.`,
+        affection: 10,
+        next: 'mf_s2_narr'
+      },
+      mf_s1_b: {
+        speaker: '마후유',
+        text: `소녀의 얼굴이 폭발할 듯이 빨개진다.
+"히익……! 저, 놀리는 건가요?! 무, 무례해요!"
+책으로 얼굴을 가린 채 전력 질주로 도망친다.`,
+        affection: -10,
+        next: 'mf_s2_narr'
+      },
+      mf_s2_narr: {
+        text: `[Scene 2] 거리 좁히기
+
+그 소녀는 남주를 경계하지만, 매일 도서관에 찾아와 주변에서 책을 읽었다. 오늘도 마후유가 구석 자리에서 책을 읽고 있다. 오늘도 옆에서 책만 읽을까, 아니면 다른 걸 할까?`,
+        choices: [
+          { label: '읽고 있는 책 옆쪽에 슬쩍 초콜릿을 놓아둔다', next: 'mf_s2_a' },
+          { label: '"오늘도 그 책 읽어?"라며 말을 건다', next: 'mf_s2_b' },
+          { label: '대각선 맞은편 자리에 앉아 조용히 각자 책을 읽는다', next: 'mf_s2_c' }
+        ]
+      },
+      mf_s2_a: {
+        speaker: '마후유',
+        text: `소녀가 깜짝 놀라 초콜릿과 남주를 번갈아 본다. 귀가 빨개진 채 고개를 푹 숙이지만, 입꼬리가 슬쩍 올라가 있다.`,
+        affection: 8,
+        next: 'mf_s3_narr'
+      },
+      mf_s2_b: {
+        speaker: '마후유',
+        text: `소녀가 앗, 소리를 내며 책으로 얼굴을 가린다. 그리고 책장 너머로 고개만 겨우 까딱거리며 긍정의 표시를 한다. 조금은 익숙해진 모양이다.`,
+        affection: 5,
+        next: 'mf_s3_narr'
+      },
+      mf_s2_c: {
+        text: `소녀가 안도하는 한숨을 내쉰다. 적당한 거리가 유지되자 긴장을 풀고 책에 집중한다. 가끔 책장 너머로 남주를 힐끔힐끔 훔쳐보기 시작한다.
+서로 얘기를 하면서 주인공은 마침내 그녀의 이름이 '마후유'라는 것을 알게 된다.`,
+        affection: 15,
+        next: 'mf_s3_narr'
+      },
+      mf_s3_narr: {
+        text: `[Scene 3] 폭풍 같은 독서 토론
+
+그런 매일을 보내다가 마후유가 읽고 있는 책에 대해 물어봤다. 그 순간, 마후유의 영역 전개 《무량공처》처럼 막대한 책의 정보가 주인공의 머릿속으로 쏟아져 들어온다. 당황한 주인공은 "아, 이런 책 내용이구나……"라며 아는 척을 해보지만, 내용이 완전히 틀렸다! 마후유는 더 흥분한 감정으로 "그게 아니고 어쩌구저쩌구예요!"라며 반박한다.`,
+        choices: [
+          { label: '귀엽네. (웃으면서 쳐다본다)', next: 'mf_s3_a' },
+          { label: '맞는 내용을 얘기하며 이어질 스토리를 같이 이어간다', next: 'mf_s3_b' }
+        ]
+      },
+      mf_s3_a: {
+        speaker: '마후유',
+        text: `마후유가 들고 있던 책으로 얼굴을 눈만 빼고 슥 가린다. 귀까지 새빨개진 상태로 웅얼거린다.
+"……지, 지금 제 말 안 듣고 놀리시는 거죠? 저, 저는 진지하단 말이에요……! 바보 선배……."`,
+        affection: 3,
+        next: 'mf_s4_narr'
+      },
+      mf_s3_b: {
+        speaker: '마후유',
+        text: `마후유의 눈이 반짝이며 자랑스러운 표정으로 바뀐다.
+"그렇죠! 역시 뭘 좀 아시네요!"
+신나서 말을 이어가다가, 10분 뒤 뒤늦게 정신을 차리고는 책으로 슬며시 얼굴을 가린다.
+"(눈동자를 좌우로 굴리며) 죄, 죄송해요…… 제가 너무 신나서 들떴죠……? 선배 이외의 남자와 이렇게 오래 얘기해 본 거, 처음이라……."`,
+        affection: 10,
+        next: 'mf_s4_narr'
+      },
+      mf_s4_narr: {
+        text: `[Scene 4] 도서관 밖의 그녀
+
+이제 두 사람은 도서관 안에서는 제법 자연스럽게 대화할 수 있는 경지까지 도달했다. 하지만 이상하게 도서관이 아닌 복도나 운동장에서 인사를 건네면, 마후유는 깜짝 놀라 도망치기만 할 뿐이다. 방과후 도서관에 와 그 이유를 물어보려고 한다. 오늘도 똑같은 자리에서 마후유가 책을 읽고 있는 걸 봤다.`,
+        choices: [
+          { label: '읽고 있는 책을 장난스레 뺏으면서 물어본다', next: 'mf_s4_a' },
+          { label: '맞은편 자리에 앉아 조용히 웃으면서 나직한 목소리로 물어본다', next: 'mf_s4_b' }
+        ]
+      },
+      mf_s4_a: {
+        speaker: '마후유',
+        text: `마후유의 표정이 순식간에 겁에 질린 듯 어두워지며, 눈가에 살짝 눈물이 고인다. 몸을 웅크리며 방어적인 자세를 취한다.
+"(입술을 파르르 떨며 원망 섞인 눈빛으로) ……돌려주세요. 역시…… 도서관 밖의 선배는 무서워요. 제, 제가 도망치는 건 다 이유가 있다고요……!"`,
+        affection: -15,
+        next: 'mf_s5_narr'
+      },
+      mf_s4_b: {
+        speaker: '마후유',
+        text: `마후유가 가디건 소매를 꼬물거리며 시선을 바닥으로 내린다. 부끄러워하면서도 진솔하게 속마음을 털어놓는다.
+"(뺨을 붉히고 손가락을 만지작거리며) 그, 게…… 밖에서 갑자기 마주치면 너무 긴장되고…… 무슨 표정을 지어야 할지 몰라서 그랬어요……."`,
+        affection: 12,
+        next: 'mf_s5_narr'
+      },
+      mf_s5_narr: {
+        text: `[Scene 5] 점심시간의 초대
+
+이제 도서관 밖에서도 겨우 눈인사 정도는 할 수 있게 된 사이. 마후유가 오늘 점심시간에 옥상에서 같이 밥을 먹자고 제안하려고 한다.
+
+마후유: "(옥상 벤치 끝에 겨우 걸터앉아 수저를 만지작거리며) 저, 저기…… 반찬으로 문어 모양 비엔나소시지 싸 왔는데…… 하, 하나 드실래요? 으, 음식에 독 같은 거 안 탔어요!"
+남주: "독이라니(웃음). 고마워, 잘 먹을게. 마후유는 요리도 잘하네?"
+마후유: "(얼굴이 빨개지며 오물오물) 으으, 놀리지 마세요……! 그냥 굽기만 한 거예요. 그나저나…… 밖에서 밥 먹는 거, 생각보다 나쁘지 않네요. 햇볕도 따뜻하고…… 선배랑 같이 있어서 그런가…… 앗, 방금 말은 취소예요!!"
+
+점심을 다 먹어갈 때쯤, 남주가 자연스럽게 타이밍을 잡는다.
+"마후유, 이번 주말에 학교 도서관 말고 시내에 큰 서점 새로 생겼는데, 같이 가볼래?"
+마후유는 놀란 토끼 눈을 했다가 이내 고개를 끄덕인다.`,
+        next: 'mf_s6_narr'
+      },
+      mf_s6_narr: {
+        text: `[Scene 6] 첫 사복 데이트와 뜻밖의 취향?
+
+주말 서점 앞. 마후유의 사복을 본 남주가 "오늘 진짜 예쁘다, 마후유"라고 칭찬한다. 마후유는 가방 끈을 꼭 쥔 채 얼굴이 빨개져서 "선..선배도 오늘…… 꽤 멋져요……"라고 기어들어 가는 목소리로 답한다.
+
+함께 서점에 들어가 책을 고르던 중, 남주의 시선이 무의식적으로 관람 불가 코너 쪽으로 향한다. 그걸 눈치챈 마후유가 슬금슬금 다가와 남주의 소매를 당긴다.
+"(차가운 듯하면서도 묘하게 실망한 눈빛으로 볼을 부풀리며) ……역시, 남자들은 다 그런 쪽을 좋아하는군요. 오빠도 어쩔 수 없는 '남자'였군요……."`,
+        next: 'mf_s7_narr'
+      },
+      mf_s7_narr: {
+        text: `[Scene 7] 마후유의 비밀 책
+
+남주가 다른 책들을 구경하고 있을 때, 마후유는 이미 계산대에서 책 한 권을 빠르게 결제하고 가방에 쏙 넣은 채 돌아온다.
+"저 다 샀어요!"`,
+        choices: [
+          { label: '무슨 책을 샀는지 다정하게 물어본다', next: 'mf_s7_a' },
+          { label: '"뭔데 그래? 나도 보여줘!" 하며 장난스레 힘으로 가방 안의 책을 뺏으려 한다', next: 'mf_s7_bad' }
+        ]
+      },
+      mf_s7_a: {
+        speaker: '마후유',
+        text: `마후유가 깜짝 놀라 가방을 뒤로 숨긴다. 눈을 마주치지 못하고 뺨을 붉히더니, 까치발을 들고 남주의 귀에 대고 속삭인다.
+"(속삭이며) ……비밀이에요. 먼저 나가서 기다릴 테니까 얼른 계산하고 오세요!"
+그러고는 달아나듯 서점 출구로 뛰어간다.
+남주: "(뒷모습을 보며) 귀엽네."`,
+        affection: 0,
+        next: 'mf_s8_narr'
+      },
+      mf_s7_bad: {
+        speaker: '마후유',
+        text: `가방이 열리며 마후유가 산 책이 바닥에 툭 떨어진다. 표지에는 남성 일러스트가 그려진 소설이 그려져 있다! 서점 안 사람들의 시선이 소리의 근원 쪽으로 향한다.
+눈물이 가득 고인 채 바닥의 책을 거두어 품에 안는다.
+"(떨리는 목소리로) ……최악이에요. 선배 같은 사람, 정말 싫어요!!"
+울면서 서점 밖으로 뛰쳐나가고, 이후 연락이 두절된다.`,
+        affection: -30,
+        ending: true,
+        endingType: 'bad',
+        endingLabel: '💔 BAD ENDING — 마후유의 비밀을 침범하다'
+      },
+      mf_s8_narr: {
+        text: `[Scene 8] 집으로 돌아가는 길, 그리고 다음 약속
+
+마후유를 집까지 데려다주며 길을 걷는다. 도란도란 대화를 나누던 중, 마후유가 먼저 용기를 내어 화제를 꺼낸다.
+"저기, 제가 정말 좋아하는 소설이 있는데…… 이번에 영화로 개봉했대요. 혹시…… 같이 보러 가실래요?"`,
+        choices: [
+          { label: '당연히 좋지. 마후유가 추천하는 영화라면 꼭 보고 싶어.', next: 'mf_s8_a' },
+          { label: '미안, 이번 주말에는 다른 약속이 있어서 영화는 좀 힘들 것 같아.', next: 'mf_s8_bad' }
+        ]
+      },
+      mf_s8_a: {
+        speaker: '마후유',
+        text: `마후유가 세상을 다 가진 듯 활짝 웃는다.
+"정말이죠? 약속한 거예요!"
+마후유의 집 앞에서 아쉽게 헤어진다.
+
+그날 밤, 마후유의 방. 침대 위에 옷을 수십 벌 펼쳐놓은 채 거울 앞에서 옷을 고르는 마후유.
+"소설 원작 영화니까 조금 지적인 느낌의 옷이 좋을까? 아니면…… 저번 데이트 때 사복 예쁘다고 해줬으니까, 데이트 복을 입을까……? 으으으, ……선배와 함께 영화 데이트... 잠이 안 와...!"`,
+        affection: 10,
+        next: 'mf_s9_narr'
+      },
+      mf_s8_bad: {
+        speaker: '마후유',
+        text: `마후유의 얼굴에서 순식간에 생기가 사라진다. 고개를 푹 숙인 채 가방끈을 뜯어질 듯이 꽉 쥔다.
+"아…… 그렇군요. 제, 제가 눈치 없이 귀찮게 굴었네요. 죄송해요……."
+집 앞까지 가는 내내 무거운 침묵이 흐르고, 마후유는 뒤도 돌아보지 않고 집 안으로 들어가 버린다.`,
+        affection: -20,
+        ending: true,
+        endingType: 'bad',
+        endingLabel: '💔 BAD ENDING — 어긋난 약속'
+      },
+      mf_s9_narr: {
+        text: `[Scene 9] 영화관 데이트의 대가
+
+극장 안. 어두컴컴한 조명 아래 스크린이 빛난다. 하지만 남주는 스크린이 아니라 옆자리에 앉은 마후유의 귀여운 옆얼굴과 긴장한 표정만 보느라 영화 내용이 하나도 머리에 들어오지 않는다. 중간에 팝콘을 먹으려고 손을 뻗다가, 팝콘 통 속에서 두 사람의 손가락이 단단히 겹친다. 마후유는 흡 소리를 내며 얼어붙는다. 영화가 끝나기 전까지 둘의 어색한 분위기가 이어져갔다.
+
+영화가 끝난 후, 극장 로비로 나오자 마후유는 평소의 소심함은 어디 가고 눈을 반짝이며 영화의 연출과 원작 소설의 차이점에 대해 깊은 논의(폭풍 수다)를 시작한다.`,
+        choices: [
+          { label: '얘기하는 마후유를 보며 미소 짓다가 머리를 부드럽게 쓰다듬는다', next: 'mf_s9_a' },
+          { label: '"그 남주인공이 마지막에 배신하는 장면이 진짜 대박이더라" (아는 척한다)', next: 'mf_s9_b' },
+          { label: '"들켰네. 영화보다 마후유가 더 예뻐서 눈을 뗄 수가 없었어."', next: 'mf_s9_c' }
+        ]
+      },
+      mf_s9_a: {
+        speaker: '마후유',
+        text: `마후유가 뚝 멈추더니 과부하가 걸린 듯 얼굴을 붉힌다.
+"앗…… 또, 또 그렇게 사람 마음 흔드는 소리를…… 못 말려요, 정말……."
+하면서도 남주의 손길을 거부하지 않는다.`,
+        affection: 10,
+        next: 'mf_s10_narr'
+      },
+      mf_s9_b: {
+        speaker: '마후유',
+        text: `마후유의 눈이 세모꼴로 변하며 가차 없이 핀잔을 준다.
+"네? 배신이요? 그건 배신이 아니라 여주인공을 지키기 위한 숭고한 희생이었다고요! 오빠, 영화 보면서 졸았죠?!"`,
+        affection: -3,
+        next: 'mf_s10_narr'
+      },
+      mf_s9_c: {
+        speaker: '마후유',
+        text: `마후유의 핀잔이 쏙 들어간다.
+"히, 히익……! 무, 무슨 말을 그렇게 대낮에 아무렇지도 않게 해요?! 바보, 멍청이, 선배……!"
+등을 찰싹 때리지만 호감도는 대폭 상승한다.`,
+        affection: 20,
+        next: 'mf_s10_narr'
+      },
+      mf_s10_narr: {
+        text: `[Scene 10] 비 내리는 하굣길, 하나의 우산
+
+방과후 도서관에서 책을 읽던 둘은 내일도 보자는 기약을 하고 헤어졌다. 잠시 후 장맛비가 내려 우산이 없는 마후유는 중앙 현관 앞에 서서 멍하니 떨어지는 빗방울만 바라보고 있다. 다들 커플끼리, 혹은 친구들끼리 우산을 쓰고 하하호호 교문을 나서는 와중, 소심한 마후유는 누구에게 같이 쓰자는 말도 못 한 채 가디건 소매를 손가락 끝까지 끌어내리며 입술을 깨물고 있다. 이때 가방에서 우산을 꺼내 든 남주가 마후유의 옆으로 다가와 툭, 말을 건넨다.
+"마후유, 우산 없어? 같이 쓰고 가자."
+
+마후유가 깜짝 놀라 고개를 들자, 남주는 이미 초록색 2인용 우산을 넓게 펼치고 있다. 마후유는 "아…… 오, 오빠……" 하며 머뭇거리다가, 남주가 이끄는 대로 우산 속으로 쏙 들어온다. 생각보다 우산의 크기가 작아 두 사람의 어깨가 완전히 밀착된다. 걸음을 옮길 때마다 가디건의 부드러운 감촉과 마후유의 은은한 샴푸 향이 빗소리 사이로 훅 끼쳐온다. 남주는 마후유가 젖지 않도록 자신도 모르게 우산을 마후유 쪽으로 크게 기울인다. 남주의 왼쪽 어깨는 이미 쏟아지는 빗줄기에 차갑게 젖어가기 시작한다.`,
+        choices: [
+          { label: '남주의 젖은 어깨를 먼저 눈치채는 마후유', next: 'mf_s10_a' },
+          { label: '남주가 먼저 마후유의 어깨를 감싸 안으며 거리를 좁힌다', next: 'mf_s10_b' }
+        ]
+      },
+      mf_s10_a: {
+        speaker: '마후유',
+        text: `마후유가 조심스럽게 고개를 돌렸다가, 남주의 왼쪽 어깨가 흠뻑 젖어 있는 것을 발견한다. 순간 마후유의 눈동자가 크게 흔들리더니, 커다란 결심을 한 듯 남주의 젖지 않은 오른쪽 가디건 자락을 꼬물거리는 손가락으로 살며시 붙잡아 자기 쪽으로 당긴다.
+"(얼굴이 귓가까지 새빨개진 채, 빗소리에 묻히지 않으려 목소리를 조금 높이며) 선, 선배…… 어깨 다 젖잖아요! 그렇게 저만 씌워주면 바보예요……? 조금 더…… 이쪽으로 바짝 오셔도 돼요. 저, 저 이제 선배라면 이렇게 밀착해도…… 안 무서우니까요…… 그러니까, 조금만 더 붙어주세요……."`,
+        affection: 15,
+        next: 'mf_s11_narr'
+      },
+      mf_s10_b: {
+        speaker: '마후유',
+        text: `맞은편에서 오는 다른 학생들의 우산과 부딪힐 뻔하자, 남주가 자연스럽게 마후유의 어깨를 감싸 안으며 자기 품 쪽으로 당긴다. 순간 마후유의 몸이 길고양이처럼 빳빳하게 굳어버린다.
+"(터질 것 같은 얼굴로 양손으로 가방을 품에 꼭 안은 채 웅얼거린다) 히익……! 고, 고의가 아닌 건 알지만…… 갑자기 이렇게 안다시피 하시면 심장에 안 좋아요…… 선배 심장 소리까지 다 들릴 것 같단 말이에요…… (슬쩍 남주의 눈치를 보며) ……하지만, 따뜻하니까…… 집에 갈 때까지만 이렇게 있을래요."`,
+        affection: 10,
+        next: 'mf_s11_narr'
+      },
+      mf_s11_narr: {
+        text: `[Scene 11] 마후유의 방
+
+선배가 젖어 있어 집 앞에서 마후유가 귓속말로 "집에 아무도 없거든요……"라는 말에 이끌려 마후유네로 들어갔다. 남주는 씻으면서 마후유의 냄새랑 똑같다는 생각을 가졌다. 그 생각을 지우고 씻고 나오니 마후유가 놓고 간 티셔츠와 바지가 있었다. 그걸 입고 마후유의 방으로 갔다. 방은 온통 빼곡한 책장들과 침대 위의 귀여운 곰 인형들로 가득한, 전형적인 문학 소녀의 방이다. 침대 가장자리에 나란히 앉는다. 빗소리가 창문을 톡톡 두드리는 가운데, 좁은 방 안에서 두 사람의 묘한 긴장감이 흐른다. 공부를 핑계로 책을 펼쳤지만, 정작 눈은 글자에 가지 않는다.
+
+긴장감을 깨려 마후유가 갈증을 느꼈는지 "음료수, 더 가져올게요……!" 하며 급하게 일어나다가, 바닥에 놓인 두꺼운 사전 모서리에 발이 꼬이고 만다. 중심을 잃은 마후유가 "앗……!" 소리를 내며 그대로 침대에 앉아있던 남주 위로 뒤엉켜 엎어진다. 침대 위로 남주의 가슴팍에 마후유의 얼굴이 완전히 파묻히고, 두 사람의 몸이 완전히 밀착된다.`,
+        choices: [
+          { label: '밀착된 상태에서 포옹만을 한다', next: 'mf_s11_a' },
+          { label: '장난스럽게 분위기를 풀려고 아픈 척을 한다', next: 'mf_s11_b' }
+        ]
+      },
+      mf_s11_a: {
+        speaker: '마후유',
+        text: `놀란 남주가 마후유가 다치지 않게 허리를 단단히 감싸 안고, 마후유는 남주의 심장 소리를 가장 가까이서 듣게 된다. 정적이 흐르고, 마후유가 천천히 고개를 들어 남주와 눈을 마주한다. 눈동자가 촉촉하게 젖어 있다.
+"(남주의 가슴에 손을 얹은 채, 심장 소리에 맞춰 떨리는 목소리로) 앗…… 죄, 죄송해요……! 움직여야 하는데, 몸에 힘이 안 들어가요…… 근데 오빠 심장 소리, 엄청 크게 들려요. 나만 터질 것처럼 긴장한 게…… 아니었구나. 조금만…… 조금만 이대로 있으면 안 돼요?"`,
+        affection: 15,
+        next: 'mf_s11_common'
+      },
+      mf_s11_b: {
+        speaker: '마후유',
+        text: `남주가 "마후유, 생각보다 묵직한데?" 하고 장난을 치자, 마후유가 깜짝 놀라 얼굴이 홍당무가 된 채 남주의 가슴을 양손으로 팡팡 때리며 허둥지둥 일어난다.
+"(울상이 되어 입술을 삐쭉 내밀고 가디건 자락을 쥐어뜯으며) 묵, 묵직하다니요?! 숙녀한테 무슨 그런 무례한 말을……! 저, 저 안 무겁거든요?! 진짜 너무해요, 사람 걱정해서 음료수 가져오려다 그런 건데…… 바보! 치…… 부끄러워 죽겠단 말이에요……."`,
+        affection: 5,
+        next: 'mf_s11_common'
+      },
+      mf_s11_common: {
+        text: `비가 그치고 선배에게 인사를 하면서 마후유가 용기 내어 묻는다.
+"선배, 내일 마을 축제 때 밤에 저랑 같이 있어주면 안 될까요..?"
+남주: "응, 그러자."
+선배를 보내고 마후유는 방 안으로 들어가 이불킥을 날린다. 잠시 뒤, "내일 드디어…… (각오한 표정으로 옷장을 연다) 할 수 있다... 마후유!!"`,
+        next: 'mf_s12_narr'
+      },
+      mf_s12_narr: {
+        text: `[Scene 12] 축제의 밤, 군중 속의 고백 전야
+
+기다리던 마을 축제의 날 밤. 마후유를 기다리며 주위를 보니 인파로 북적였다. 그러던 와중에 마후유가 바로 앞까지 온다. 하얀색 유카타를 입고 나타난 마후유는 어서 옷에 대해 칭찬해달라고 행동을 보여준다. 그런 모습이 너무 귀여워 숨을 멎게 만든다. 잠시 어색한 분위기가 이어지다, 먼저 말을 꺼내 불꽃놀이를 보러 가자고 했다. 마후유는 아쉬운 표정으로 같이 간다. 계속 가다 보니 사람이 많은 곳을 싫어하는 마후유이기에, 웅성거리는 인파 속에서 잔뜩 긴장해 남주의 뒤에 바짝 붙어 옷자락만 잡은 채 걸음을 옮긴다.
+
+그때, 메인스테이지 쪽에서 큰 함성이 터지며 사람들이 한꺼번에 앞으로 달려나가기 시작한다. 인파에 휩쓸려 마후유가 "앗……!" 하고 넘어지려 하자, 남주가 기민하게 손을 뻗어 마후유의 작은 손을 꽉 움켜쥔다. 첫 만남 때였다면 소리를 지르며 도망쳤을 마후유였지만, 이제는 도망치지 않고 남주의 손을 꽉 잡고 있다. 콰앙-! 하는 소리와 함께 밤하늘에 첫 불꽃이 화려하게 터지기 시작한다.`,
+        choices: [
+          { label: '꽉 잡은 손을 그대로 주머니에 넣으며 에스코트한다', next: 'mf_s12_a' },
+          { label: '불꽃 소리 때문에 귀에 대고 속삭이듯 대화한다', next: 'mf_s12_b' },
+          { label: '사람이 없는 한적한 장소로 마후유를 이끌고 대피한다', next: 'mf_s12_c' }
+        ]
+      },
+      mf_s12_a: {
+        speaker: '마후유',
+        text: `남주가 "사람 많으니까 잃어버리지 않게 이렇게 가자"며 잡은 손을 자신의 외투 주머니 속으로 쏙 넣는다. 마후유는 붉게 타오르는 불꽃 빛에 얼굴이 가려진 줄 알고, 평소보다 대담하게 눈을 빛내며 남주를 올려다본다.
+"(주머니 속에서 손가락을 꼼지락거리며 깍지를 끼고) ……선배 손, 엄청 크네요. 저를 처음 만났던 도서관이 생각나요. 그땐 남자가 너무 무서워서 도망치기 바빴는데…… 지금은, 이 손을 절대 놓치고 싶지 않다고 생각할 줄은 몰랐어요. 불꽃보다…… 선배 얼굴이 더 잘 보여서 큰일이에요……."`,
+        affection: 20,
+        next: 'mf_s12_behind'
+      },
+      mf_s12_b: {
+        speaker: '마후유',
+        text: `쾅쾅 터지는 불꽃 소리 때문에 말이 잘 안 들리자, 남주가 마후유의 귓가에 고개를 숙여 "마후유, 옷 진짜 잘 어울려! 너무 예쁘다!"라고 소리친다. 갑작스러운 귓가 속삭임에 마후유가 자지러지듯 놀라며 남주의 목을 끌어안는다.
+"(남주의 어깨에 얼굴을 묻은 채 앙탈 부리듯) 으아아! 귀에 대고 그렇게 갑자기 말씀하시면 반칙이에요……! 심장이 머리끝까지 뛰는 것 같단 말이에요! ……근데, 예쁘다고 해주셔서 진짜, 진짜 기뻐요. 선배한테 잘 보이려고 몇 시간 동안 거울만 본 보람이 있네요…… 헤헤."`,
+        affection: 12,
+        next: 'mf_s12_behind'
+      },
+      mf_s12_c: {
+        speaker: '마후유',
+        text: `마후유가 사람 멀미를 하는 것 같자, 남주가 마후유의 손을 잡고 한적한 장소로 대피한다. 멀리서 불꽃 소리가 아련하게 들리고, 두 사람만의 고요한 공간이 찾아온다.
+"(안도의 한숨을 내쉬며 뺨을 붉히고) 후우…… 살았다. 역시 전 시끄러운 곳보단, 선배랑 둘만 있는 조용한 곳이 제일 체질에 맞나 봐요. 선배…… 그거 아세요? 우리 서 있는 곳에서 바로 학교 도서관 창문이 보이는 곳이에요. 우리의 시작이 저기였다는 게…… 왠지 조금 낭만적이지 않나요?"`,
+        affection: 15,
+        next: 'mf_s12_behind'
+      },
+      mf_s12_behind: {
+        text: `축제가 끝나고 모든 불꽃이 사그라진 밤. 마후유는 잡았던 손을 천천히 놓으며, 무언가 큰 결심을 한 듯한 눈빛으로 남주를 바라본다.
+"선배, 내일 방과 후에…… 도서관에서 기다릴게요. 꼭 와주셔야 해요? 약속이에요…….“`,
+        next: 'mf_final_narr'
+      },
+      mf_final_narr: {
+        text: `[Final Scene] 침묵을 깨는 약속
+
+축제가 끝난 다음 날, 약속대로 찾아간 방과 후의 도서관. 오렌지빛 노을이 깊숙한 서가 사이로 길게 그림자를 드리우고 있다. 책장을 넘기는 사락 소리마저 멈춘 고요함 속에서, 마후유는 구석 자리 테이블에 앉아 책을 펼쳐 둔 채 나를 기다리고 있었다. 내가 맞은편 자리에 의자를 빼고 앉자, 마후유가 들고 있던 책을 살며시 내려놓고 떨리는 눈빛으로 내 눈을 똑바로 바라본다.
+
+창밖에서 매미 소리가 아스라이 들려오는 도서관 안, 두 사람 사이에 터질 듯한 긴장감이 감돈다. 가디건 소매를 조심스레 꼬물거리던 마후유가 마침내 큰 결심을 한 듯, 천천히 손을 뻗어 책상 위에 놓인 나의 손 위에 자신의 작은 손을 포개어온다. 첫 만남 때 손이 스치자마자 비명을 지르며 도망치던 소심한 소녀는 이제 없다. 마후유의 흰 뺨을 타고 노을빛이 붉게 번져간다.`,
+        next: 'mf_final_confession'
+      },
+      mf_final_confession: {
+        speaker: '마후유',
+        text: `"(포갠 손가락에 아주 살짝 힘을 주어 쥐며) …선배가. 저, 처음에 선배가 높은 곳에서 책 꺼내줬을 때…… 솔직히 너무 무서웠어요. 남자는 다 늑대 같고, 난폭하고, 나 같은 애는 비웃을 거라고 생각했으니까……."
+마후유가 흐릿하게 미소를 지으며 눈가를 촉촉이 적신다.
+"하지만 선배는 매일 내 대각선 맞은편에 앉아 묵묵히 기다려줬고, 내가 좋아하는 책 이야기에 귀를 기울여줬고, 비 오는 날엔 어깨가 다 젖어가면서도 나를 지켜줬어요. 집에서도, 축제에서도…… 늘 내 속도에 맞춰서 한 걸음씩 다가와 줬죠."
+숨을 크게 들이쉰 마후유가 마주 잡은 손을 더 꼭 쥐며, 세상에서 가장 용기 있는 표정으로 나를 올려다본다.
+"이제 도서관 밖의 선배도 전혀 무섭지 않아요. 아니…… 오히려 선배가 없는 도서관은, 책이 아무리 많아도 텅 빈 것만 같아요. 저…… 선배를 정말 많이, 많이 좋아해요. 그러니까…… 앞으로도 계속 제 옆자리에서 함께 책을 읽어주실래요?"`,
+        next: 'mf_epilogue'
+      },
+      mf_epilogue: {
+        text: `마후유의 올곧은 고백에 내가 웃으며 "나도 그래, 마후유. 좋아해"라고 답하자, 마후유는 참았던 눈물을 한 방울 톡 떨어트리더니 이내 세상을 다 가진 것처럼 활짝 웃어 보인다.
+그리고는 부끄러움을 감추려는 듯, 늘 하던 대로 열려 있던 책을 번쩍 들어 올려 우리 두 사람의 얼굴 앞을 슥 가려버린다. 책장 너머로 숨어버린 공간 속에서, 서로의 숨소리를 들을 만큼 가까운 거리가 찾아온다.
+외부와 차단된 오롯이 둘만의 공간이 된 그곳에서 두 사람의 소중한 마음이 마침내 하나로 맞닿는다. 고요한 방과 후의 도서관은 서로에게만 집중하는 달콤하고 따스한 온기로 가득 채워지기 시작했다.`,
+        affection: 25,
+        ending: true,
+        endingType: 'good',
+        endingLabel: '📚 GOOD ENDING — 침묵을 깨는 약속'
+      }
+    }
+  }
+};
+
 // 상황에 맞는 이미지로 교체 (등록 안 된 상황이면 기본 이미지 유지)
 function setSprite(kind) {
   const src = SPRITES[kind] || CHARACTER.image;
@@ -1999,6 +2650,157 @@ function showLine(speaker, text, isUser) {
     }
   }, 32);
 }
+
+/* ═══════════════════════════════════
+   스토리모드 엔진
+═══════════════════════════════════ */
+let storyMode = false;
+let currentStoryCharId = null;
+let currentStoryNodeId = null;
+let storyEnded = false;              // 엔딩(정상/AI판정 배드엔딩) 도달 후 잠금
+const storyChoicesEl = document.getElementById('storyChoices');
+const storyEndActionsEl = document.getElementById('storyEndActions');
+const inputAreaEl = document.querySelector('.input-area');
+
+function initStory(charId) {
+  storyMode = true;
+  currentStoryCharId = charId;
+  storyEnded = false;
+  USER_NAME = localStorage.getItem('playerName') || "나";
+  history.length = 0;
+  affection = START_AFFECTION;
+  isGameOver = false;
+  input.disabled = true;
+  sendBtn.disabled = true;
+  if (inputAreaEl) inputAreaEl.style.display = 'none';
+  storyChoicesEl.classList.remove('show');
+  storyChoicesEl.innerHTML = '';
+  storyEndActionsEl.classList.remove('show');
+  storyEndActionsEl.innerHTML = '';
+  sprite.classList.remove('runaway');
+  document.getElementById('gameoverModal').classList.remove('show');
+  document.getElementById('resetModal').classList.remove('show');
+  currentEmotion = "기본";
+  setSprite('start');
+  updateGauge();
+  renderStoryNode(STORY_DATA[charId].start);
+}
+
+function storyShowText(speaker, text, isNarration) {
+  clearInterval(typing);
+  nameTag.textContent = speaker;
+  nameTag.classList.remove('user');
+  nameTag.classList.toggle('narration', !!isNarration);
+  box.classList.remove('user');
+  box.classList.toggle('narration', !!isNarration);
+  arrow.classList.remove('show');
+  textEl.textContent = '';
+
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduced) {
+    textEl.textContent = text;
+    arrow.classList.add('show');
+    onStoryTextFinished();
+    return;
+  }
+  let i = 0;
+  typing = setInterval(() => {
+    textEl.textContent = text.slice(0, ++i);
+    if (i >= text.length) {
+      clearInterval(typing);
+      arrow.classList.add('show');
+      onStoryTextFinished();
+    }
+  }, 24);
+}
+
+function renderStoryNode(nodeId) {
+  const node = STORY_DATA[currentStoryCharId].nodes[nodeId];
+  if (!node) return;
+  currentStoryNodeId = nodeId;
+  storyChoicesEl.classList.remove('show');
+  storyChoicesEl.innerHTML = '';
+  storyEndActionsEl.classList.remove('show');
+  storyEndActionsEl.innerHTML = '';
+  if (inputAreaEl) inputAreaEl.style.display = 'none';
+  input.disabled = true;
+  sendBtn.disabled = true;
+
+  const isNarration = !node.speaker;
+  const speakerLabel = isNarration ? '📖 내레이션' : node.speaker;
+  storyShowText(speakerLabel, node.text, isNarration);
+}
+
+function onStoryTextFinished() {
+  const node = STORY_DATA[currentStoryCharId].nodes[currentStoryNodeId];
+  if (node.affection) {
+    affection += node.affection;
+    updateGauge();
+    showToast(node.affection, '');
+  }
+  if (node.ending) {
+    showStoryEnding(node);
+  } else if (node.choices) {
+    showStoryChoices(node.choices);
+  }
+  // 씬 사이 자유 대화(인터루드) 기능은 제거됨 — 대사/나레이션 노드는
+  // 대사창 클릭으로 바로 다음 장면(next)으로 이어진다.
+}
+
+function showStoryChoices(choices) {
+  storyChoicesEl.innerHTML = '';
+  choices.forEach(c => {
+    const btn = document.createElement('button');
+    btn.className = 'story-choice-btn';
+    btn.type = 'button';
+    btn.textContent = c.label;
+    btn.addEventListener('click', () => renderStoryNode(c.next));
+    storyChoicesEl.appendChild(btn);
+  });
+  storyChoicesEl.classList.add('show');
+}
+
+function showStoryEnding(node) {
+  storyEnded = true;
+  if (inputAreaEl) inputAreaEl.style.display = 'none';
+  storyEndActionsEl.innerHTML = '';
+  const label = document.createElement('div');
+  label.className = 'story-ending-label';
+  label.textContent = (node.endingLabel || '') + ' · 최종 호감도 ' + affection;
+  storyEndActionsEl.appendChild(label);
+
+  const retryBtn = document.createElement('button');
+  retryBtn.className = 'story-choice-btn';
+  retryBtn.type = 'button';
+  retryBtn.textContent = '🔄 스토리 다시하기';
+  retryBtn.addEventListener('click', () => initStory(currentStoryCharId));
+  storyEndActionsEl.appendChild(retryBtn);
+
+  const mainBtn = document.createElement('button');
+  mainBtn.className = 'story-choice-btn';
+  mainBtn.type = 'button';
+  mainBtn.textContent = '🏠 메인으로';
+  mainBtn.addEventListener('click', () => { storyMode = false; showScreen('main'); });
+  storyEndActionsEl.appendChild(mainBtn);
+
+  storyEndActionsEl.classList.add('show');
+}
+
+// 대사창 클릭 : 타자기 효과 즉시 완료, 다시 클릭하면 다음 노드로 진행 (선택지·엔딩 노드는 버튼으로만 진행)
+box.addEventListener('click', () => {
+  if (!storyMode || !currentStoryCharId || storyEnded) return;
+  const node = STORY_DATA[currentStoryCharId].nodes[currentStoryNodeId];
+  if (!node) return;
+  if (!arrow.classList.contains('show')) {
+    clearInterval(typing);
+    textEl.textContent = node.text;
+    arrow.classList.add('show');
+    onStoryTextFinished();
+    return;
+  }
+  if (node.choices || node.ending) return;
+  if (node.next) renderStoryNode(node.next);
+});
 
 /* ── 서버 주소 정리 + 흔한 실수 자동 교정 ──
    · ngrox/ngork/ngrock → ngrok (오타면 DNS 조회가 실패해 ERR_NAME_NOT_RESOLVED,
@@ -2086,8 +2888,8 @@ function buildSystemPrompt(profile) {
   const suggestive = CHARACTER.allowSuggestive
     ? " 이 캐릭터는 순진해서 자신의 말이 야한 뉘앙스인 줄 모르는 컨셉입니다. 사용자가 다소 야한 말을 건네도 정색하거나 대화를 거부하지 말고, 캐릭터 성격대로 순진하게 반응하세요. 다만 실제 묘사는 순수한 수준으로만 하고, 노골적이거나 명시적인 성적 묘사는 하지 마세요."
     : "";
-  // 캐릭터별 연출 규칙 (예: 츠키의 첫 응답 장면 전환)
-  const sceneRule = CHARACTER.sceneRule ? " " + CHARACTER.sceneRule : "";
+  // 캐릭터별 연출 규칙 (예: 츠키의 첫 응답 장면 전환) — 스토리모드 중에는 적용하지 않음(자유모드 전용)
+  const sceneRule = (CHARACTER.sceneRule && !storyMode) ? " " + CHARACTER.sceneRule : "";
   return persona + details + suggestive + sceneRule +
     " 이것은 호감도 시스템이 있는 비주얼노벨 게임입니다. 현재 호감도는 " + affection + " 입니다." +
     " 호감도는 10에서 시작하고 상한은 없으며, 음수가 되면 캐릭터가 떠나고 게임이 끝납니다." +
@@ -3461,6 +4263,17 @@ if (MULTI.mode === 'client' && MULTI.autoEnter &&
 
 /* ── 츠키 화면 입장 : 대화 상태 초기화 ── */
 function initChat() {
+  storyMode = false;
+  currentStoryCharId = null;
+  currentStoryNodeId = null;
+  storyEnded = false;
+  if (inputAreaEl) inputAreaEl.style.display = '';
+  storyChoicesEl.classList.remove('show');
+  storyChoicesEl.innerHTML = '';
+  storyEndActionsEl.classList.remove('show');
+  storyEndActionsEl.innerHTML = '';
+  box.classList.remove('narration');
+  nameTag.classList.remove('narration');
   USER_NAME = localStorage.getItem('playerName') || "나";
   history.length = 0;
   affection = START_AFFECTION;
@@ -3484,7 +4297,8 @@ function initChat() {
 }
 
 // 캐릭터 전환 : 레지스트리에서 해당 캐릭터의 설정·스프라이트를 불러와 대화 화면 진입
-function enterChat(charId) {
+// mode: 'free'(기본, AI 자유대화) | 'story'(정해진 스토리·선택지 진행)
+function enterChat(charId, mode) {
   activeCharId = charId;
   const entry = CHARACTERS[charId];
   CHARACTER = entry.char;
@@ -3495,7 +4309,11 @@ function enterChat(charId) {
     if (savedImg) CHARACTER.image = savedImg;
   } catch (e) { console.error(e); }
   showScreen('chat');
-  initChat();
+  if (mode === 'story' && typeof STORY_DATA !== 'undefined' && STORY_DATA[charId]) {
+    initStory(charId);
+  } else {
+    initChat();
+  }
 }
 // 츠키 진입 (기존 호출 호환용)
 function enterTsuki() { enterChat('tsuki'); }
