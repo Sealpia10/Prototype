@@ -1545,7 +1545,7 @@
         <div class="dev-section" id="sec-multi">
           <h3>멀티 컴퓨터 모드</h3>
           <p class="dev-note" style="margin-bottom:12px;">
-            A 컴퓨터 1대가 LM Studio(gemma)로 <b>5개 페르소나를 전부 연산</b>하고,
+            A 컴퓨터 1대가 LM Studio(로드한 모델)로 <b>5개 페르소나를 전부 연산</b>하고,
             컴퓨터 1~5는 각자 담당 페르소나의 대화 요청을 A에 <b>송신</b>한 뒤
             자기 몫의 답인지 검증해 <b>수신</b>합니다.
           </p>
@@ -1562,8 +1562,8 @@
             <input type="text" id="multiHostUrl" placeholder="예: http://192.168.0.10:1234">
           </div>
           <div class="dev-field">
-            <label>모델명 (A에 로드된 gemma 모델 · 연결 확인 시 자동 감지)</label>
-            <input type="text" id="multiModel" placeholder="google/gemma-4-12B-it-qat-q4_0-gguf">
+            <label>모델명 (A에 로드된 모델 · 이름이 조금 달라도 로드된 모델로 자동 보정됨)</label>
+            <input type="text" id="multiModel" placeholder="예: google/gemma-4-12B-it-qat-q4_0-gguf · qwen2.5-14b · llama-3.1-8b">
           </div>
 
           <!-- 클라이언트 전용 -->
@@ -1588,8 +1588,9 @@
           <p class="dev-note" id="multiStatus" style="display:none; margin-bottom:10px;"></p>
           <div id="multiBoard" style="display:none; margin-bottom:10px;"></div>
           <p class="dev-note">
-            <b>A 컴퓨터(호스트) 준비</b> ① LM Studio에서 gemma 모델
-            (예: google/gemma-4-12B-it-qat-q4_0-gguf)을 로드 →
+            <b>A 컴퓨터(호스트) 준비</b> ① LM Studio에서 원하는 모델을 로드
+            (gemma·llama·qwen·mistral·exaone 등 어떤 모델이든 지원 —
+            모델명이 정확하지 않아도 로드된 모델로 자동 보정됩니다) →
             ② Developer(&lt;/&gt;) 탭 → Start Server →
             <b>"Serve on Local Network"를 켜기</b> (그래야 다른 컴퓨터가 http://A의IP:1234 로 접속 가능) →
             ③ CORS 허용(기본값) 확인. A의 IP는 Windows에서 <code>ipconfig</code>, macOS에서 <code>ifconfig</code>로 확인합니다.<br>
@@ -2024,6 +2025,58 @@ function normalizeServerUrl(raw) {
   return { url: stripped, notes: notes };
 }
 
+/* ── 다중 모델 호환 계층 ──
+   LM Studio에 어떤 모델(gemma·llama·qwen·mistral·exaone·deepseek 등)을
+   로드해도 동작하도록 모델별 특성과 모델명 자동 보정을 한곳에서 관리 */
+const MODEL_QUIRKS = [
+  // gemma 계열: 채팅 템플릿이 system 역할 미지원 ("roles must alternate" 오류)
+  { match: /gemma/i, systemRole: false },
+  // 그 외 모델: system 역할 지원 (미지원이면 오류를 감지해 아래 learnedNoSystem에 학습)
+  { match: /[\s\S]*/, systemRole: true }
+];
+const learnedNoSystem = new Set();   // 런타임에 실제 오류로 확인된 system 미지원 모델
+function modelSupportsSystem(model) {
+  const m = String(model || '');
+  if (learnedNoSystem.has(m)) return false;
+  const q = MODEL_QUIRKS.find(q => q.match.test(m));
+  return q ? q.systemRole : true;
+}
+
+/* 입력한 모델명과 가장 가까운 "서버에 실제 로드된" 모델 id 선택
+   예: "google/gemma-4-12b-qat" → "google/gemma-4-12B-it-qat-q4_0-gguf" */
+function pickBestModel(ids, wanted) {
+  if (!ids || !ids.length) return null;
+  const w = String(wanted || '').toLowerCase();
+  if (!w) return ids[0];
+  const exact = ids.find(id => id === wanted) || ids.find(id => id.toLowerCase() === w);
+  if (exact) return exact;
+  // 토큰 단위 유사도: 대소문자·-it-·양자화 접미사 차이를 흡수
+  const tokens = w.split(/[^a-z0-9.]+/).filter(Boolean);
+  let best = null, bestScore = 0;
+  ids.forEach(id => {
+    const lid = id.toLowerCase();
+    const score = tokens.reduce((s, t) => s + (lid.indexOf(t) !== -1 ? 1 : 0), 0);
+    if (score > bestScore) { bestScore = score; best = id; }
+  });
+  return (bestScore >= 2 ? best : null) || ids[0];
+}
+
+/* 서버(/v1/models)에서 로드된 모델을 조회해 모델명 보정 (주소+모델별 캐시) */
+const resolvedModelCache = {};
+async function resolveModelId(base, headers, wanted) {
+  const key = base + '|' + (wanted || '');
+  if (resolvedModelCache[key]) return resolvedModelCache[key];
+  const r = await fetch(base + '/v1/models', { headers: headers || {} });
+  const d = JSON.parse(await r.text());
+  const ids = (d.data || []).map(m => m.id).filter(Boolean);
+  if (!ids.length) throw new Error('서버에 로드된 모델이 없습니다 — LM Studio에서 모델을 먼저 로드하세요');
+  const found = pickBestModel(ids, wanted);
+  resolvedModelCache[key] = found;
+  return found;
+}
+// "모델을 찾을 수 없음" 계열 오류 감지 (LM Studio·Ollama·vLLM 등 문구 차이 흡수)
+const MODEL_NOT_FOUND_RE = /model.{0,40}not found|not found.{0,40}model|no models? (are )?loaded|failed to load model|unknown model|does not exist|model_not_found|invalid model/i;
+
 /* ── AI 호출 (프로필 기반 다중 제공자) ── */
 function buildSystemPrompt(profile) {
   const persona  = (profile && profile.persona) ? profile.persona : CHARACTER.persona;
@@ -2124,8 +2177,11 @@ async function callProvider(profile, systemPrompt, msgs) {
     if (p.provider === 'local' && /ngrok/i.test(base)) headers["ngrok-skip-browser-warning"] = "true";
     const tag = p.provider === 'local' ? '로컬 LLM' : 'ChatGPT';
 
-    // system 역할 미지원 모델(gemma 계열 일부 서버 등)을 위해:
-    // 1차는 system 역할로, 실패 사유가 역할/템플릿 문제로 보이면 첫 user 메시지에 합쳐 자동 재시도
+    // 모델명은 실행 중 자동 보정될 수 있으므로 변수로 관리
+    let modelId = p.model || '';
+
+    // system 역할 미지원 모델(gemma 계열 등)을 위해:
+    // 특성표(MODEL_QUIRKS)에 따라 처음부터 합치거나, 오류 감지 시 합쳐서 자동 재시도
     async function doCall(useSystemRole) {
       const messages = useSystemRole
         ? [{ role: "system", content: systemPrompt }].concat(msgs)
@@ -2134,7 +2190,7 @@ async function callProvider(profile, systemPrompt, msgs) {
         method: "POST",
         headers: headers,
         body: JSON.stringify({
-          model: p.model || (p.provider === 'local' ? 'local-model' : 'gpt-4o-mini'),
+          model: modelId || (p.provider === 'local' ? 'local-model' : 'gpt-4o-mini'),
           max_tokens: maxTokens,
           temperature: temp,
           messages: messages
@@ -2160,15 +2216,36 @@ async function callProvider(profile, systemPrompt, msgs) {
       return c || '';
     }
 
-    // gemma 계열(gemma-2-9b-it 등)은 채팅 템플릿이 system 역할을 지원하지 않아
-    // "Conversation roles must alternate user/assistant" 오류가 나므로 처음부터 합쳐 보냄
-    const supportsSystem = !/gemma/i.test(p.model || '');
+    // 모델 특성표 기반 1차 시도 + system 미지원 오류 자동 감지·학습
+    async function runOnce() {
+      const sys = modelSupportsSystem(modelId);
+      try {
+        return await doCall(sys);
+      } catch (e) {
+        if (sys && /system|role|template|jinja|alternate/i.test(String(e.message))) {
+          learnedNoSystem.add(String(modelId || ''));
+          logError(tag, 'system 역할 미지원 모델로 보여 첫 메시지에 합쳐 재시도합니다: ' + e.message);
+          return await doCall(false);
+        }
+        throw e;
+      }
+    }
+
     try {
-      return await doCall(supportsSystem);
+      return await runOnce();
     } catch (e) {
-      if (supportsSystem && /system|role|template|jinja|alternate/i.test(String(e.message))) {
-        logError(tag, 'system 역할 미지원 모델로 보여 첫 메시지에 합쳐 재시도합니다: ' + e.message);
-        return await doCall(false);
+      // 모델명이 서버에 로드된 모델과 다르면(오타·빈칸·양자화 접미사 차이 등)
+      // 실제 로드된 모델 id로 보정해 1회 재시도하고 프로필에도 반영
+      if (p.provider === 'local' && MODEL_NOT_FOUND_RE.test(String(e.message))) {
+        const fixed = await resolveModelId(base, headers, modelId);
+        if (fixed && fixed !== modelId) {
+          logError(tag, '모델명을 서버에 로드된 모델로 보정해 재시도합니다: ' +
+            (modelId || '(빈칸)') + ' → ' + fixed);
+          modelId = fixed;
+          p.model = fixed;
+          saveProfiles();
+          return await runOnce();
+        }
       }
       throw e;
     }
@@ -2211,8 +2288,12 @@ function clampDelta(v) {
 }
 let warnedNoJson = false;
 function parseAIResponse(raw) {
-  // ① thinking 모델(<think>...</think>) 생각 과정 제거
-  let text = String(raw || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  // ① 여러 모델 지원: thinking 계열(<think>·<thinking>) 사고 과정과
+  //    특수 토큰(<|im_end|> 등), 마크다운 코드 펜스 제거
+  let text = String(raw || '')
+    .replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '')
+    .replace(/<\|[^|>]{1,40}\|>/g, '')
+    .trim();
   const clean = text.replace(/```json|```/gi, '').trim();
 
   // ② 정상 JSON 시도
@@ -3076,9 +3157,9 @@ const MultiLink = {
     const o = opts || {};
     const maxTokens = o.maxTokens || 700;
     const temp = (o.temperature === undefined) ? 0.8 : o.temperature;
-    // gemma 계열(gemma-2 포함)은 채팅 템플릿이 system 역할을 지원하지 않아
-    // "Conversation roles must alternate" 오류가 나므로 처음부터 첫 user 메시지에 합쳐 보냄
-    let useSystemRole = !/gemma/i.test(MULTI.model || MULTI_DEFAULT_MODEL);
+    // 모델 특성표 기반: system 역할 미지원 모델(gemma 계열 등)은 처음부터 첫 user 메시지에 합쳐 보냄
+    let useSystemRole = modelSupportsSystem(MULTI.model || MULTI_DEFAULT_MODEL);
+    let modelFixTried = false;   // 모델명 자동 보정은 요청당 1회만
 
     const buildBody = () => {
       const messages = useSystemRole
@@ -3119,9 +3200,23 @@ const MultiLink = {
           const m = String((d.error && d.error.message) || JSON.stringify(d.error));
           if (useSystemRole && /system|role|template|jinja|alternate/i.test(m)) {
             logError('멀티PC 송신', 'system 역할 미지원 서버로 보여 첫 메시지에 합쳐 재시도합니다: ' + m);
+            learnedNoSystem.add(String(MULTI.model || ''));
             useSystemRole = false;
             attempt--;
             continue;
+          }
+          // 모델명이 A에 로드된 모델과 다르면(오타·양자화 접미사 차이) 실제 id로 보정해 재시도
+          if (!modelFixTried && MODEL_NOT_FOUND_RE.test(m)) {
+            modelFixTried = true;
+            const fixed = await resolveModelId(base, headers, MULTI.model);
+            if (fixed && fixed !== MULTI.model) {
+              logError('멀티PC 송신', '모델명을 A에 로드된 모델로 보정해 재시도합니다: ' +
+                (MULTI.model || '(빈칸)') + ' → ' + fixed);
+              MULTI.model = fixed;
+              saveMultiConfig();
+              attempt--;
+              continue;
+            }
           }
           throw new Error(m);
         }
@@ -3282,7 +3377,7 @@ document.getElementById('multiCheck').addEventListener('click', async () => {
       return;
     }
     const want = MULTI.model || MULTI_DEFAULT_MODEL;
-    const found = ids.find(id => id === want) || ids.find(id => /gemma/i.test(id));
+    const found = pickBestModel(ids, want);
     if (found && found !== MULTI.model) {
       MULTI.model = found;
       document.getElementById('multiModel').value = found;
@@ -3290,9 +3385,10 @@ document.getElementById('multiCheck').addEventListener('click', async () => {
     }
     multiStatusMsg('✅ A 서버 연결 성공 · 로드된 모델 ' + ids.length + '개: ' +
       ids.map(x => '<code>' + escapeHtml(x) + '</code>').join(', ') +
-      (found
-        ? '<br>gemma 모델 확인됨 → <code>' + escapeHtml(found) + '</code> 사용'
-        : '<br>⚠ gemma 계열 모델이 보이지 않습니다. A의 LM Studio에서 google/gemma-4-12B-it-qat-q4_0-gguf를 로드하세요.'));
+      '<br>사용 모델 → <code>' + escapeHtml(found) + '</code>' +
+      (found === want
+        ? ' (입력한 모델명 그대로 확인됨)'
+        : ' (입력한 모델명 <code>' + escapeHtml(want) + '</code>와 가장 가까운 로드된 모델로 자동 보정)'));
   } catch (e) {
     multiStatusMsg('⚠ 연결 실패: ' + escapeHtml(String((e && e.message) || e)) +
       '<br>순서대로 확인하세요: ' +
@@ -3323,7 +3419,7 @@ document.getElementById('multiTestAll').addEventListener('click', async () => {
     board.appendChild(div);
     lines[cp.computer] = div;
   });
-  multiStatusMsg('A의 gemma 모델이 5개 페르소나를 순서대로 연산합니다. 실제 운용에서는 각 답이 요청을 보낸 컴퓨터로 송신됩니다…');
+  multiStatusMsg('A의 모델(' + escapeHtml(MULTI.model || MULTI_DEFAULT_MODEL) + ')이 5개 페르소나를 순서대로 연산합니다. 실제 운용에서는 각 답이 요청을 보낸 컴퓨터로 송신됩니다…');
 
   for (const cp of COMPUTER_PERSONAS) {
     const div = lines[cp.computer];
