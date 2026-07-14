@@ -154,24 +154,57 @@
     max-width: 1100px;
     display: grid;
     grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-    /* 대화창·입력창을 상단(상단바 바로 아래)으로 붙이고 남는 공간은 아래(1fr)로 */
-    grid-template-rows: auto auto auto auto auto 1fr;
+    /* 대화창은 우측 하단 고정: 가운데 1fr 행이 남는 공간을 흡수하고
+       대화창·선택지·입력창이 아래쪽에 정렬됨 (상단바와는 행으로 분리 → 겹침 없음) */
+    grid-template-rows: auto 1fr auto auto auto;
     grid-template-areas:
       "topbar  topbar"
       "stage   dialogue"
       "stage   choices"
       "stage   endact"
-      "stage   input"
-      "stage   .";
+      "stage   input";
     column-gap: 6px;
   }
   #screen-chat .topbar            { grid-area: topbar; }
-  /* 사진도 상단 정렬 — 상단바와는 그리드 행으로 분리되어 겹치지 않음 */
-  #screen-chat .stage             { grid-area: stage; align-items: flex-start; padding-top: 6px; }
-  #screen-chat .dialogue-area     { grid-area: dialogue; align-self: start; }
+  /* 캐릭터 사진: 좌측 세로 전체 사용, 하단 기준 정렬(비주얼노벨 표준) */
+  #screen-chat .stage             { grid-area: stage; align-items: flex-end; padding: 6px 0 10px; }
+  #screen-chat .dialogue-area     { grid-area: dialogue; align-self: end; }
   #screen-chat .story-choices     { grid-area: choices; }
   #screen-chat .story-end-actions { grid-area: endact; }
   #screen-chat .input-area        { grid-area: input; }
+
+  /* ── UI/UX 크기 조정 ──
+     사진: 세로 공간을 최대로 쓰되 원본 비율(2:3)을 유지해 잘림 최소화
+     대화창: 최대 높이를 제한해 화면을 다 덮지 않고, 넘치면 내부 스크롤 */
+  #screen-chat .char-sprite {
+    height: min(96%, 640px);
+    aspect-ratio: 2 / 3;
+    width: auto;
+    max-width: 100%;
+  }
+  #screen-chat .dialogue-box {
+    max-height: 46vh;
+    overflow-y: auto;
+  }
+
+  /* ── 창 이동·등장 모션 ── */
+  @keyframes panel-in {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes sprite-fade {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  .dialogue-area.slide-in { animation: panel-in .35s ease both; }
+  .story-choices.show, .story-end-actions.show { animation: panel-in .3s ease both; }
+  .char-sprite img { animation: sprite-fade .45s ease both; }
+  .input-area { transition: transform .3s ease, opacity .3s ease; }
+  @media (prefers-reduced-motion: reduce) {
+    .dialogue-area.slide-in,
+    .story-choices.show, .story-end-actions.show,
+    .char-sprite img { animation: none; }
+  }
 
   /* 좁은 화면(모바일)에서는 기존 세로 배치로 복귀 */
   @media (max-width: 720px) {
@@ -3044,10 +3077,20 @@ function updateGauge() {
   gaugeNum.textContent = affection;
 }
 
+/* 대사창 등장 모션 재생 (새 대사·화자 전환 시마다) */
+function replayDialogueMotion() {
+  const area = box.parentElement;
+  if (!area) return;
+  area.classList.remove('slide-in');
+  void area.offsetWidth;   // 리플로우로 애니메이션 재시작
+  area.classList.add('slide-in');
+}
+
 /* 대사 표시 (타자기 효과) */
 let typing = null;
 function showLine(speaker, text, isUser) {
   clearInterval(typing);
+  replayDialogueMotion();
   nameTag.textContent = speaker;
   nameTag.classList.toggle('user', !!isUser);
   box.classList.toggle('user', !!isUser);
@@ -3178,6 +3221,7 @@ function initStory(charId) {
 
 function storyShowText(speaker, text, isNarration) {
   clearInterval(typing);
+  replayDialogueMotion();
   nameTag.textContent = speaker;
   nameTag.classList.remove('user');
   nameTag.classList.toggle('narration', !!isNarration);
