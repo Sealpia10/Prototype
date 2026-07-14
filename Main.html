@@ -154,18 +154,21 @@
     max-width: 1100px;
     display: grid;
     grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-    grid-template-rows: auto 1fr auto auto auto;
+    /* 대화창·입력창을 상단(상단바 바로 아래)으로 붙이고 남는 공간은 아래(1fr)로 */
+    grid-template-rows: auto auto auto auto auto 1fr;
     grid-template-areas:
       "topbar  topbar"
       "stage   dialogue"
       "stage   choices"
       "stage   endact"
-      "stage   input";
+      "stage   input"
+      "stage   .";
     column-gap: 6px;
   }
   #screen-chat .topbar            { grid-area: topbar; }
-  #screen-chat .stage             { grid-area: stage; }
-  #screen-chat .dialogue-area     { grid-area: dialogue; align-self: end; }
+  /* 사진도 상단 정렬 — 상단바와는 그리드 행으로 분리되어 겹치지 않음 */
+  #screen-chat .stage             { grid-area: stage; align-items: flex-start; padding-top: 6px; }
+  #screen-chat .dialogue-area     { grid-area: dialogue; align-self: start; }
   #screen-chat .story-choices     { grid-area: choices; }
   #screen-chat .story-end-actions { grid-area: endact; }
   #screen-chat .input-area        { grid-area: input; }
@@ -4582,11 +4585,44 @@ async function multiAsk(systemPrompt, msgs) {
   }
 }
 
-/* 멀티PC 클라이언트: 담당 페르소나 대화로 자동 입장 */
-function multiAutoEnter() {
+/* 멀티PC 클라이언트: 담당 페르소나 대화로 자동 입장
+   — 잔존 설정이 일반 사용을 가로채지 않도록 3중 안전장치:
+     ① A 서버가 실제로 응답할 때만(부스 운용 중일 때만) 입장
+     ② 페이지 로드당 1회만 (리셋·인트로 반복 시 재입장 방지)
+     ③ 이미 대화 화면이 열려 있으면 개입하지 않음 */
+let multiAutoEnteredOnce = false;
+async function multiAutoEnter() {
   if (MULTI.mode !== 'client' || !MULTI.autoEnter) return;
+  if (multiAutoEnteredOnce) return;
+  if (document.getElementById('screen-chat').classList.contains('active')) return;
   const cp = COMPUTER_PERSONAS.find(c => c.computer === (parseInt(MULTI.computerId) || 1));
-  if (cp && CHARACTERS[cp.charId]) enterChat(cp.charId);
+  if (!cp || !CHARACTERS[cp.charId]) return;
+  try {
+    const base = MultiLink.base();
+    const headers = {};
+    if (/ngrok/i.test(base)) headers['ngrok-skip-browser-warning'] = 'true';
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 3000);
+    const r = await fetch(base + '/v1/models', { headers: headers, signal: ctl.signal });
+    clearTimeout(timer);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+  } catch (e) {
+    logError('멀티PC 자동 입장 건너뜀', 'A 서버가 응답하지 않아 자동 입장을 하지 않습니다. ' +
+      '멀티PC 운용이 아니라면 개발자 패널 → 멀티PC에서 모드를 끄세요');
+    return;
+  }
+  if (multiAutoEnteredOnce || document.getElementById('screen-chat').classList.contains('active')) return;
+  multiAutoEnteredOnce = true;
+  enterChat(cp.charId);
+  // 왜 이 화면으로 열렸는지 안내 (개발자 패널 → 멀티PC에서 해제 가능)
+  try {
+    const t = document.createElement('div');
+    t.className = 'toast up';
+    t.innerHTML = '<span>🖥</span><span>멀티PC 자동 입장: ' + cp.name + ' (해제: 개발자 패널 → 멀티PC)</span>';
+    toastArea.appendChild(t);
+    requestAnimationFrame(() => t.classList.add('in'));
+    setTimeout(() => { t.classList.remove('in'); setTimeout(() => t.remove(), 350); }, 4500);
+  } catch (e) { console.error(e); }
 }
 
 /* ── 멀티PC 탭 UI ── */
