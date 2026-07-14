@@ -1,6 +1,9 @@
 # Changelog — 호감도 만렙 프로젝트
 
-변경 이력을 릴리즈 단위로 분류한 문서입니다. 각 버전은 git 태그와 일치합니다.
+변경 이력을 릴리즈 단위로 분류한 문서입니다.
+각 버전의 코드는 원격 저장소의 릴리즈 브랜치
+`claude/multi-computer-ai-personas-0jftuv-release-vX.Y.Z` 에서 확인할 수 있습니다.
+(GitHub Releases 생성 시 "Choose a tag"에 버전을 입력하고 Target을 해당 릴리즈 브랜치로 지정하면 됩니다)
 
 ---
 
