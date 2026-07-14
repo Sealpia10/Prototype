@@ -11,25 +11,33 @@ LM Studio 비속어 검열 미들웨어 (필터링 프록시)
                        ◄── 응답도 동일하게 검열되어 반환 ◄──
 
 사용법
-  1) 비속어 목록 파일 준비 (txt 또는 csv, 여러 개 지정 가능)
-       - .txt : 한 줄에 한 단어 (쉼표로 여러 개 나열해도 됨, # 으로 시작하면 주석)
-       - .csv : 모든 칸의 값을 비속어로 등록
+  1) 비속어 목록 준비 (여러 개 지정 가능)
+       - .txt  : 한 줄에 한 단어 (쉼표로 여러 개 나열해도 됨, # 으로 시작하면 주석)
+       - .csv  : 모든 칸의 값을 비속어로 등록
+       - .json : ["단어", ...] 배열, {"words": [...]}, 중첩 객체 등
+                 문자열이 담긴 어떤 구조든 자동으로 훑어 등록
   2) A 컴퓨터에서 실행:
-       python filter_proxy.py --words badwords.txt badwords.csv
+       python filter_proxy.py --words badwords.txt badwords.csv badwords.json
      옵션:
        --port 8800                          프록시가 열릴 포트 (기본 8800)
        --upstream http://localhost:1234     LM Studio 주소 (기본값)
        --mask ○                             치환 문자 (기본 ○, 단어 길이만큼 반복)
        --block-request                      사용자 입력에 비속어가 있으면 전달하지 않고
                                             거부 메시지를 반환 (기본은 마스킹 후 전달)
+       --words-url URL [URL ...]            온라인 검열어 라이브러리에서 가져오기
+                                            (txt/csv/json 원문 주소, 여러 개 가능)
+       --refresh 300                        URL 목록 재확인 주기(초, 기본 300 · 0이면 시작 시 1회만)
   3) 각 클라이언트의 Main.html → 개발자 패널 → 멀티PC(또는 AI 연동) 주소를
        http://A의IP:8800  으로 설정하면 끝. (1234 대신 8800)
 
 특징
   - 사용자 발화(요청)와 AI 응답 양쪽 모두 검열
   - 단어 목록 파일이 바뀌면 재시작 없이 자동 재로드 (파일 수정 시각 감지)
+  - URL 소스는 --refresh 주기마다 자동 갱신 (라이브러리 업데이트 반영)
   - CORS 허용 → 브라우저(로컬 파일)에서 바로 접속 가능
   - /v1/models 등 나머지 API는 그대로 통과
+  - Main.html 자체에도 동일한 입력 검열이 내장되어 있음(개발자 패널 → 검열 탭) —
+    이 프록시는 서버 측 2차 방어선으로 함께 쓸 수 있다
 """
 import argparse
 import csv
@@ -47,37 +55,71 @@ UPSTREAM = 'http://localhost:1234'
 MASK_CHAR = '○'
 BLOCK_REQUEST = False
 WORD_FILES = []          # [(경로, 마지막 수정시각)]
+WORD_URLS = []           # 온라인 라이브러리 주소 목록
+URL_WORDS = set()        # URL에서 받아 온 단어 캐시
+URL_REFRESH = 300        # URL 재확인 주기(초)
+_last_url_fetch = 0.0
 BAD_WORDS = []           # 정렬된 비속어 목록 (긴 단어 우선)
 BAD_RE = None            # 컴파일된 정규식
 STATS = {'requests': 0, 'masked_in': 0, 'masked_out': 0, 'blocked': 0}
 
 
+def parse_words_text(content):
+    """txt/csv 공통: 줄 단위 + 쉼표 분리, # 주석 제외."""
+    words = set()
+    for line in str(content).splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        for w in line.split(','):
+            w = w.strip()
+            if w and not w.startswith('#'):
+                words.add(w)
+    return words
+
+
+def parse_words_json(content):
+    """JSON: 배열/객체 등 어떤 구조든 내부의 모든 문자열을 단어로 등록."""
+    words = set()
+
+    def walk(v):
+        if isinstance(v, list):
+            for x in v:
+                walk(x)
+        elif isinstance(v, dict):
+            for x in v.values():
+                walk(x)
+        elif isinstance(v, str):
+            w = v.strip()
+            if w and not w.startswith('#'):
+                words.add(w)
+
+    walk(json.loads(content))
+    return words
+
+
 # ── 비속어 목록 로드 ───────────────────────────────────
 def load_words():
-    """txt/csv 파일들에서 비속어 목록을 (재)로드한다."""
+    """로컬 파일(txt/csv/json) + URL 캐시에서 비속어 목록을 (재)구성한다."""
     global BAD_WORDS, BAD_RE
-    words = set()
+    words = set(URL_WORDS)
     for i, (path, _) in enumerate(WORD_FILES):
         try:
             mtime = os.path.getmtime(path)
             WORD_FILES[i] = (path, mtime)
             ext = os.path.splitext(path)[1].lower()
             with open(path, encoding='utf-8-sig') as f:
-                if ext == '.csv':
-                    for row in csv.reader(f):
-                        for cell in row:
-                            w = cell.strip()
-                            if w and not w.startswith('#'):
-                                words.add(w)
-                else:  # txt 등: 줄 단위 + 쉼표 허용
-                    for line in f:
-                        line = line.strip()
-                        if not line or line.startswith('#'):
-                            continue
-                        for w in line.split(','):
-                            w = w.strip()
-                            if w:
-                                words.add(w)
+                content = f.read()
+            if ext == '.json':
+                words |= parse_words_json(content)
+            elif ext == '.csv':
+                for row in csv.reader(content.splitlines()):
+                    for cell in row:
+                        w = cell.strip()
+                        if w and not w.startswith('#'):
+                            words.add(w)
+            else:  # txt 등
+                words |= parse_words_text(content)
         except FileNotFoundError:
             print(f'[경고] 단어 파일 없음: {path}', flush=True)
         except Exception as e:
@@ -87,11 +129,38 @@ def load_words():
         BAD_RE = re.compile('|'.join(re.escape(w) for w in BAD_WORDS), re.IGNORECASE)
     else:
         BAD_RE = None
-    print(f'[로드] 비속어 {len(BAD_WORDS)}개 등록', flush=True)
+    print(f'[로드] 비속어 {len(BAD_WORDS)}개 등록 (URL 소스 {len(URL_WORDS)}개 포함)', flush=True)
+
+
+def fetch_url_words(force=False):
+    """온라인 라이브러리(txt/csv/json URL)에서 단어를 받아 캐시를 갱신한다."""
+    global URL_WORDS, _last_url_fetch
+    if not WORD_URLS:
+        return
+    now = time.time()
+    if not force and (URL_REFRESH <= 0 or now - _last_url_fetch < URL_REFRESH):
+        return
+    _last_url_fetch = now
+    fetched = set()
+    for url in WORD_URLS:
+        try:
+            with urllib.request.urlopen(url, timeout=10) as r:
+                body = r.read().decode('utf-8', errors='replace')
+            if url.lower().split('?')[0].endswith('.json') or body.lstrip()[:1] in '[{':
+                fetched |= parse_words_json(body)
+            else:
+                fetched |= parse_words_text(body)
+            print(f'[URL] {url} 에서 목록 갱신', flush=True)
+        except Exception as e:
+            print(f'[경고] URL 가져오기 실패 ({url}): {e}', flush=True)
+    if fetched and fetched != URL_WORDS:
+        URL_WORDS = fetched
+        load_words()
 
 
 def reload_if_changed():
-    """단어 파일이 수정됐으면 자동 재로드."""
+    """단어 파일 수정·URL 갱신 주기를 확인해 자동 재로드."""
+    fetch_url_words()
     for path, mtime in WORD_FILES:
         try:
             if os.path.getmtime(path) != mtime:
@@ -231,19 +300,27 @@ class FilterProxy(BaseHTTPRequestHandler):
 
 
 def main():
-    global UPSTREAM, MASK_CHAR, BLOCK_REQUEST, WORD_FILES
+    global UPSTREAM, MASK_CHAR, BLOCK_REQUEST, WORD_FILES, WORD_URLS, URL_REFRESH
     ap = argparse.ArgumentParser(description='LM Studio 비속어 검열 미들웨어')
     ap.add_argument('--port', type=int, default=8800, help='프록시 포트 (기본 8800)')
     ap.add_argument('--upstream', default='http://localhost:1234', help='LM Studio 주소')
-    ap.add_argument('--words', nargs='+', required=True, help='비속어 목록 파일 (txt/csv, 복수 지정 가능)')
+    ap.add_argument('--words', nargs='+', default=[], help='비속어 목록 파일 (txt/csv/json, 복수 지정 가능)')
+    ap.add_argument('--words-url', nargs='+', default=[], help='온라인 검열어 라이브러리 URL (txt/csv/json 원문 주소)')
+    ap.add_argument('--refresh', type=int, default=300, help='URL 목록 재확인 주기(초, 기본 300 · 0=시작 시 1회만)')
     ap.add_argument('--mask', default='○', help='치환 문자 (기본 ○)')
     ap.add_argument('--block-request', action='store_true', help='비속어 포함 요청은 전달하지 않고 거부')
     args = ap.parse_args()
+
+    if not args.words and not args.words_url:
+        ap.error('--words 파일 또는 --words-url 주소 중 하나 이상이 필요합니다')
 
     UPSTREAM = args.upstream
     MASK_CHAR = args.mask
     BLOCK_REQUEST = args.block_request
     WORD_FILES = [(p, 0.0) for p in args.words]
+    WORD_URLS = args.words_url
+    URL_REFRESH = args.refresh
+    fetch_url_words(force=True)
     load_words()
 
     server = ThreadingHTTPServer(('0.0.0.0', args.port), FilterProxy)

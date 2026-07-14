@@ -1489,6 +1489,7 @@
         <button class="dev-tab" data-tab="chat">대화 조작</button>
         <button class="dev-tab" data-tab="api">AI 연동</button>
         <button class="dev-tab" data-tab="multi">멀티PC</button>
+        <button class="dev-tab" data-tab="filter">검열</button>
         <button class="dev-tab" data-tab="key">단축키</button>
         <button class="dev-tab" data-tab="log">오류 로그<span class="log-badge" id="logBadge"></span></button>
       </div>
@@ -1774,6 +1775,46 @@
             ③ "A 서버 연결 확인" 버튼의 오류 메시지를 확인하세요.<br>
             여러 컴퓨터가 동시에 질문하면 A가 순서대로 연산하므로 답이 조금 늦어질 수 있으며,
             이때는 자동으로 재시도합니다. 멀티PC 모드가 켜져 있으면 "AI 연동" 탭의 프로필 대신 이 설정이 사용됩니다.
+          </p>
+        </div>
+
+        <!-- 탭 : 비속어 검열 (입력 시 마스킹) -->
+        <div class="dev-section" id="sec-filter">
+          <h3>비속어 검열</h3>
+          <p class="dev-note" style="margin-bottom:12px;">
+            사용자가 입력해 전송하는 순간, 등록된 검열어를 ○로 마스킹합니다.
+            화면 표시와 AI에게 전달되는 문장 모두 마스킹된 상태가 됩니다.
+          </p>
+          <div class="dev-field">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <input type="checkbox" id="filterEnabled" style="width:auto;">
+              검열 사용 (입력 전송 시 자동 마스킹)
+            </label>
+          </div>
+          <div class="dev-field">
+            <label>검열어 목록 (한 줄에 하나 · 쉼표로 여러 개 가능) — 현재 <span id="filterCount">0</span>개</label>
+            <textarea id="filterWords" rows="6" placeholder="바보&#10;멍청이, 등신"></textarea>
+          </div>
+          <div class="dev-btn-row">
+            <button class="dev-btn pink" id="filterSave">목록 저장</button>
+            <button class="dev-btn" id="filterImportBtn">📄 파일에서 추가 (txt·csv·json)</button>
+            <input type="file" id="filterFile" accept=".txt,.csv,.json" multiple style="display:none;">
+            <button class="dev-btn red" id="filterReset">기본 목록으로 초기화</button>
+          </div>
+          <div class="dev-field">
+            <label>온라인 라이브러리 URL에서 가져오기 (txt·csv·json 지원)</label>
+            <input type="text" id="filterUrl" placeholder="예: https://raw.githubusercontent.com/.../badwords.json">
+          </div>
+          <div class="dev-btn-row">
+            <button class="dev-btn" id="filterFetch">🌐 URL에서 추가</button>
+          </div>
+          <p class="dev-note" id="filterStatus" style="display:none; margin-bottom:10px;"></p>
+          <p class="dev-note">
+            JSON은 <code>["단어", …]</code> 배열, <code>{"words": […]}</code>, 중첩 객체 등
+            문자열이 담긴 어떤 구조든 자동으로 훑어 등록합니다.
+            목록은 이 기기에 저장되며 체험자 리셋으로 지워지지 않습니다.<br>
+            서버 측(A 컴퓨터) 일괄 검열이 필요하면 <code>middleware/filter_proxy.py</code>를 함께 사용하세요 —
+            같은 txt/csv/json 파일을 공유할 수 있습니다.
           </p>
         </div>
 
@@ -4160,6 +4201,26 @@ async function resolveModelId(base, headers, wanted) {
 // "모델을 찾을 수 없음" 계열 오류 감지 (LM Studio·Ollama·vLLM 등 문구 차이 흡수)
 const MODEL_NOT_FOUND_RE = /model.{0,40}not found|not found.{0,40}model|no models? (are )?loaded|failed to load model|unknown model|does not exist|model_not_found|invalid model/i;
 
+/* 응답 본문 추출 — 여러 모델·서버 호환
+   일부 LM Studio 버전은 gemma 계열에서 생성 결과를 message.content 대신
+   다른 필드(reasoning_content 등)에 담거나 비워서 반환한다 (서버 로그에는
+   정상 출력되는데 채팅창에는 '…'만 뜨는 원인). 가능한 위치를 모두 확인한다. */
+function extractChatContent(d) {
+  const ch = d && d.choices && d.choices[0];
+  if (!ch) return '';
+  const m = ch.message || {};
+  let c = m.content;
+  if (Array.isArray(c)) c = c.map(x => (x && (x.text || x.content)) || '').join('');
+  if (typeof c === 'string' && c.trim()) return c;
+  // 대체 필드 순서대로 탐색 (reasoning 분리형·구형 completions·비표준 서버)
+  const alts = [m.reasoning_content, m.reasoning, ch.text, d.content,
+                ch.delta && ch.delta.content];
+  for (const a of alts) {
+    if (typeof a === 'string' && a.trim()) return a;
+  }
+  return '';
+}
+
 /* ── AI 호출 (프로필 기반 다중 제공자) ── */
 function buildSystemPrompt(profile) {
   const persona  = (profile && profile.persona) ? profile.persona : CHARACTER.persona;
@@ -4293,10 +4354,14 @@ async function callProvider(profile, systemPrompt, msgs) {
           JSON.stringify(d).slice(0, 180) +
           ' — 주소가 API 터널(콘솔의 OpenAI compatible API 주소)이 맞는지, UI 주소(7860)를 넣지 않았는지 확인하세요');
       }
-      // 일부 서버는 content를 문자열 대신 조각 배열로 반환
-      const c = d.choices[0].message.content;
-      if (Array.isArray(c)) return c.map(x => (x && (x.text || x.content)) || '').join('');
-      return c || '';
+      // 본문 추출 (content가 비어 있으면 대체 필드까지 탐색 — 다중 모델 호환)
+      const out = extractChatContent(d);
+      if (!out.trim()) {
+        throw new Error(tag + ': 서버가 빈 응답을 반환했습니다. LM Studio 로그에는 생성되지만 ' +
+          'API 응답의 content가 비는 현상으로, LM Studio를 최신 버전으로 업데이트하거나 ' +
+          '모델을 다시 로드해 보세요 (응답 원문: ' + JSON.stringify(d).slice(0, 160) + ')');
+      }
+      return out;
     }
 
     // 모델 특성표 기반 1차 시도 + system 미지원 오류 자동 감지·학습
@@ -4515,8 +4580,22 @@ function triggerGameOver() {
    2) AI 응답 도착하면 캐릭터 대사창으로 전환 */
 async function send() {
   if (isGameOver) return;
-  const text = input.value.trim();
-  if (!text) return;
+  const rawText = input.value.trim();
+  if (!rawText) return;
+
+  // 비속어 검열 : 전송 직전에 마스킹 (화면 표시·AI 전달 모두 검열된 문장 사용)
+  const censored = censorUserText(rawText);
+  const text = censored.text;
+  if (censored.count > 0) {
+    try {
+      const t = document.createElement('div');
+      t.className = 'toast down';
+      t.innerHTML = '<span>🛡</span><span>비속어 ' + censored.count + '건이 검열되었습니다</span>';
+      toastArea.appendChild(t);
+      requestAnimationFrame(() => t.classList.add('in'));
+      setTimeout(() => { t.classList.remove('in'); setTimeout(() => t.remove(), 350); }, 2600);
+    } catch (e) { console.error(e); }
+  }
 
   input.value = '';
   input.disabled = true;
@@ -5337,8 +5416,13 @@ const MultiLink = {
     if (!data || !data.choices || !data.choices[0] || !data.choices[0].message) {
       throw new Error('멀티PC 수신: 응답 형식이 올바르지 않습니다 — ' + JSON.stringify(data || {}).slice(0, 160));
     }
-    const c = data.choices[0].message.content;
-    return Array.isArray(c) ? c.map(x => (x && (x.text || x.content)) || '').join('') : (c || '');
+    // 본문 추출 (content가 비어 있으면 대체 필드까지 탐색 — 다중 모델 호환)
+    const out = extractChatContent(data);
+    if (!out.trim()) {
+      throw new Error('멀티PC 수신: 서버가 빈 응답을 반환했습니다. LM Studio를 최신 버전으로 ' +
+        '업데이트하거나 모델을 다시 로드해 보세요 (응답 원문: ' + JSON.stringify(data).slice(0, 160) + ')');
+    }
+    return out;
   }
 };
 
@@ -5574,6 +5658,136 @@ if (MULTI.mode === 'client' && MULTI.autoEnter &&
     urlParams.get('skipintro') !== '1' && urlParams.get('reset') !== '1') {
   multiAutoEnter();
 }
+
+/* ═════════════════════════════════════════════════
+   비속어 검열 (클라이언트 · 사용자 입력 시 마스킹)
+   — 전송 직전에 입력 문장에서 검열어를 ○로 치환한다.
+   — 목록은 개발자 패널 → 검열 탭에서 직접 편집하거나,
+     txt/csv/json 파일 또는 온라인 라이브러리 URL로 업데이트할 수 있다.
+═════════════════════════════════════════════════ */
+const FILTER_DEFAULT_WORDS = ['바보', '멍청이', '병신', '씨발', '시발', 'ㅅㅂ', '개새끼',
+  '꺼져', '닥쳐', '등신', '저능아', '미친놈', '미친년', '죽어버려'];
+let FILTER = { enabled: true, words: FILTER_DEFAULT_WORDS.slice() };
+try {
+  const savedFilter = JSON.parse(localStorage.getItem('filterConfig') || 'null');
+  if (savedFilter && typeof savedFilter === 'object') FILTER = Object.assign(FILTER, savedFilter);
+  if (!Array.isArray(FILTER.words)) FILTER.words = FILTER_DEFAULT_WORDS.slice();
+} catch (e) { console.error(e); }
+function saveFilterConfig() {
+  try { localStorage.setItem('filterConfig', JSON.stringify(FILTER)); }
+  catch (e) { logError('검열 저장', e.message || e); }
+}
+
+let filterRegex = null;
+function rebuildFilterRegex() {
+  const ws = (FILTER.words || []).map(w => String(w).trim()).filter(Boolean)
+    .sort((a, b) => b.length - a.length);   // 긴 단어 우선
+  filterRegex = ws.length
+    ? new RegExp(ws.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'gi')
+    : null;
+}
+rebuildFilterRegex();
+
+/* 입력 문장 검열 : 마스킹된 문장과 치환 횟수 반환 */
+function censorUserText(t) {
+  if (!FILTER.enabled || !filterRegex) return { text: t, count: 0 };
+  let count = 0;
+  const text = String(t).replace(filterRegex, m => { count++; return '○'.repeat(m.length); });
+  return { text: text, count: count };
+}
+
+/* txt(줄/쉼표)·csv(셀)·json(배열/객체 내 모든 문자열) → 단어 목록 */
+function parseFilterWords(content, kind) {
+  const out = [];
+  const push = w => { w = String(w == null ? '' : w).trim(); if (w && !w.startsWith('#')) out.push(w); };
+  if (kind === 'json') {
+    const d = JSON.parse(content);   // 실패 시 호출부에서 안내
+    (function walk(v) {
+      if (Array.isArray(v)) v.forEach(walk);
+      else if (v && typeof v === 'object') Object.keys(v).forEach(k => walk(v[k]));
+      else if (typeof v === 'string') push(v);
+    })(d);
+  } else {
+    String(content).split(/\r?\n/).forEach(line => line.split(',').forEach(push));
+  }
+  return out;
+}
+
+function filterStatusMsg(html) {
+  const el = document.getElementById('filterStatus');
+  el.style.display = 'block';
+  el.innerHTML = html;
+}
+function fillFilterForm() {
+  document.getElementById('filterEnabled').checked = !!FILTER.enabled;
+  document.getElementById('filterWords').value = (FILTER.words || []).join('\n');
+  document.getElementById('filterCount').textContent = (FILTER.words || []).length;
+}
+function addFilterWords(list, sourceLabel) {
+  const seen = new Set(FILTER.words);
+  let added = 0;
+  list.forEach(w => { if (!seen.has(w)) { FILTER.words.push(w); seen.add(w); added++; } });
+  saveFilterConfig();
+  rebuildFilterRegex();
+  fillFilterForm();
+  filterStatusMsg('✅ ' + escapeHtml(sourceLabel) + ' → ' + added + '개 추가' +
+    (list.length - added > 0 ? ' (중복 ' + (list.length - added) + '개 제외)' : '') +
+    ' · 총 ' + FILTER.words.length + '개');
+}
+
+document.getElementById('filterEnabled').addEventListener('change', e => {
+  FILTER.enabled = e.target.checked;
+  saveFilterConfig();
+});
+document.getElementById('filterSave').addEventListener('click', () => {
+  FILTER.words = parseFilterWords(document.getElementById('filterWords').value, 'text');
+  FILTER.enabled = document.getElementById('filterEnabled').checked;
+  saveFilterConfig();
+  rebuildFilterRegex();
+  fillFilterForm();
+  filterStatusMsg('✅ 저장 완료 · 검열어 ' + FILTER.words.length + '개' + (FILTER.enabled ? '' : ' (검열 꺼짐)'));
+});
+document.getElementById('filterReset').addEventListener('click', () => {
+  FILTER.words = FILTER_DEFAULT_WORDS.slice();
+  saveFilterConfig();
+  rebuildFilterRegex();
+  fillFilterForm();
+  filterStatusMsg('기본 목록(' + FILTER.words.length + '개)으로 초기화했습니다.');
+});
+document.getElementById('filterImportBtn').addEventListener('click', () => {
+  document.getElementById('filterFile').click();
+});
+document.getElementById('filterFile').addEventListener('change', e => {
+  [...e.target.files].forEach(f => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const kind = /\.json$/i.test(f.name) ? 'json' : 'text';
+        addFilterWords(parseFilterWords(reader.result, kind), f.name);
+      } catch (err) {
+        filterStatusMsg('⚠ ' + escapeHtml(f.name) + ' 읽기 실패: ' + escapeHtml(String(err.message || err)));
+      }
+    };
+    reader.readAsText(f, 'utf-8');
+  });
+  e.target.value = '';
+});
+document.getElementById('filterFetch').addEventListener('click', async () => {
+  const url = document.getElementById('filterUrl').value.trim();
+  if (!url) { filterStatusMsg('⚠ URL을 입력하세요.'); return; }
+  filterStatusMsg('가져오는 중…');
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const body = await r.text();
+    const kind = (/\.json(\?|$)/i.test(url) || /^\s*[\[{]/.test(body)) ? 'json' : 'text';
+    addFilterWords(parseFilterWords(body, kind), url.split('/').pop() || 'URL');
+  } catch (e) {
+    filterStatusMsg('⚠ 가져오기 실패: ' + escapeHtml(String(e.message || e)) +
+      ' — 주소가 원문(raw) 파일인지, 해당 사이트가 브라우저 접근(CORS)을 허용하는지 확인하세요.');
+  }
+});
+fillFilterForm();
 
 /* ── 츠키 화면 입장 : 대화 상태 초기화 ── */
 function initChat() {
