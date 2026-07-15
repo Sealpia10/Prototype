@@ -5160,8 +5160,50 @@ function initStory(charId) {
   renderStoryNode(STORY_DATA[charId].start);
 }
 
+/* ── 스토리 텍스트 개인화 ──
+   내레이션·대사·선택지에 남아 있는 주인공 지칭('주인공' / '○○' / '{이름}')을
+   체험자가 입력한 이름으로 치환한다. 뒤따르는 조사(은/는·이/가·을/를·과/와·(으)로·아/야)는
+   이름의 받침 유무에 맞춰 자동 보정한다. (콜론·공백·의·에게·도 등 불변 조사는 그대로 유지) */
+let currentStoryText = '';
+function storyJongseong(ch) {
+  if (!ch) return -1;
+  const c = ch.charCodeAt(0);
+  if (c < 0xAC00 || c > 0xD7A3) return -1;   // 한글 음절 아님
+  return (c - 0xAC00) % 28;                   // 0 = 받침 없음
+}
+function personalizeStoryText(text) {
+  if (text == null) return text;
+  const name = (USER_NAME && USER_NAME.trim()) ? USER_NAME.trim() : '나';
+  const j = storyJongseong(name[name.length - 1]);
+  const batchim = (j === -1) ? true : (j !== 0);   // 비한글 이름은 받침 있음으로 처리
+  const rieul   = (j === 8);                        // ㄹ 받침
+  const pick = (cons, vow) => batchim ? cons : vow;
+  const withJosa = (jo) => {
+    switch (jo) {
+      case '은': case '는':   return name + pick('은', '는');
+      case '이': case '가':   return name + pick('이', '가');
+      case '을': case '를':   return name + pick('을', '를');
+      case '과': case '와':   return name + pick('과', '와');
+      case '으로': case '로':  return name + ((!batchim || rieul) ? '로' : '으로');
+      case '아': case '야':   return name + pick('아', '야');
+      default:                return name + (jo || '');
+    }
+  };
+  const JOSA = /(은|는|이|가|을|를|과|와|으로|로|아|야)?/.source;
+  // '주인공' 지칭 → 이름 (뒤 조사 보정). '군' 등 접미사·콜론·공백은 그대로 유지됨
+  text = text.replace(new RegExp('주인공' + JOSA, 'g'), (m, jo) => withJosa(jo));
+  // '○○' 플레이스홀더 → 이름 (뒤 조사 보정)
+  text = text.replace(new RegExp('○○' + JOSA, 'g'), (m, jo) => withJosa(jo));
+  // 중괄호 토큰 → 이름
+  text = text.replace(/\{이름_?\}/g, name);
+  return text;
+}
+
 function storyShowText(speaker, text, isNarration) {
   clearInterval(typing);
+  speaker = personalizeStoryText(speaker);
+  text = personalizeStoryText(text);
+  currentStoryText = text;
   replayDialogueMotion();
   nameTag.textContent = speaker;
   nameTag.classList.remove('user');
@@ -5250,7 +5292,7 @@ function showStoryChoices(choices, node) {
     const btn = document.createElement('button');
     btn.className = 'story-choice-btn';
     btn.type = 'button';
-    btn.textContent = c.label;
+    btn.textContent = personalizeStoryText(c.label);
     btn.addEventListener('click', () => renderStoryNode(c.next));
     storyChoicesEl.appendChild(btn);
   });
@@ -5290,7 +5332,7 @@ box.addEventListener('click', () => {
   if (!node) return;
   if (!arrow.classList.contains('show')) {
     clearInterval(typing);
-    textEl.textContent = node.text;
+    textEl.textContent = currentStoryText;   // 개인화(이름 치환)된 텍스트로 즉시 완료
     arrow.classList.add('show');
     onStoryTextFinished();
     return;
