@@ -2104,6 +2104,16 @@ function eulReul(n) {
   if (c >= 0xAC00 && c <= 0xD7A3) return ((c - 0xAC00) % 28 > 0) ? '을' : '를';
   return '을(를)';
 }
+/* {이름}·{이름_} 토큰을 체험자 이름으로 치환 (전 화면·AI 전달 공통).
+   {이름_} = 조사 없는 순수 이름, {이름} = 이름+을/를(자동). 스토리 텍스트의
+   ○○·주인공 치환은 personalizeStoryText가 담당한다. */
+function fillName(text) {
+  if (text == null) return text;
+  const nm = (typeof USER_NAME !== 'undefined' && USER_NAME) ? USER_NAME : '나';
+  return String(text)
+    .split('{이름_}').join(nm)
+    .split('{이름}').join(nm + eulReul(nm));
+}
 const START_AFFECTION = 10;      // 모든 페르소나 공통 기본 호감도
 let affection = START_AFFECTION; // 시작 호감도 (상한 없음)
 let isGameOver = false;          // 강제종료 상태
@@ -5537,7 +5547,7 @@ function buildSystemPrompt(profile) {
     : "";
   // 캐릭터별 연출 규칙 (예: 츠키의 첫 응답 장면 전환) — 스토리모드 중에는 적용하지 않음(자유모드 전용)
   const sceneRule = (CHARACTER.sceneRule && !storyMode) ? " " + CHARACTER.sceneRule : "";
-  return persona + details + suggestive + sceneRule +
+  return fillName(persona + details + suggestive + sceneRule) +
     " 이것은 호감도 시스템이 있는 비주얼노벨 게임입니다. 현재 호감도는 " + affection + " 입니다." +
     " 호감도는 10에서 시작하고 상한은 없으며, 음수가 되면 캐릭터가 떠나고 게임이 끝납니다." +
     " 사용자의 말투와 배려에 따라 호감도가 오르내립니다." +
@@ -5862,12 +5872,13 @@ function triggerGameOver() {
   sendBtn.disabled = true;
   input.placeholder = "대화가 종료되었습니다";
 
-  // 캐릭터의 마지막 대사
-  showLine(CHARACTER.name, '"' + CHARACTER.gameOverLine + '"', false);
+  // 캐릭터의 마지막 대사 ({이름} 토큰 → 체험자 이름)
+  const goLine = fillName(CHARACTER.gameOverLine);
+  showLine(CHARACTER.name, '"' + goLine + '"', false);
 
   // 대사가 끝난 뒤 캐릭터가 사라지고 팝업 표시
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const wait = reduced ? 700 : CHARACTER.gameOverLine.length * 32 + 1000;
+  const wait = reduced ? 700 : goLine.length * 32 + 1000;
   setTimeout(() => {
     sprite.classList.add('runaway');
     // 캐릭터별 특수 나레이션이 있으면 그것을, 없으면 기본 문구를 표시
@@ -7160,9 +7171,7 @@ function initChat() {
   currentEmotion = "기본";
   setSprite('start');      // 시작 대사 전용 이미지 (고정)
   updateGauge();
-  const firstLine = CHARACTER.firstLine
-    .split('{이름_}').join(USER_NAME)                       // 조사 없이 순수 이름
-    .split('{이름}').join(USER_NAME + eulReul(USER_NAME));   // 을/를 자동
+  const firstLine = fillName(CHARACTER.firstLine);   // {이름_}·{이름} → 체험자 이름
   showLine(CHARACTER.name, '"' + firstLine + '"', false);
   input.focus();
 }
