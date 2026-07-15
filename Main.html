@@ -3105,7 +3105,7 @@ const STORY_DATA = {
     start: 'y1',
     nodes: {
       y1: {
-        background: '',
+        background: 'Assets/배경/유메/교실.png',
         sprite: 'Assets/유메/유메 의문.png',
         text: `[S#1] 기억하지 못하는 소꿉친구 (D1 · 오전 · 교실)
 
@@ -3167,6 +3167,7 @@ const STORY_DATA = {
         next: 'y2'
       },
       y2: {
+        background: 'Assets/배경/유메/학교 옥상.png',
         sprite: 'Assets/유메/유메 기본.png',
         text: `[S#2] 되찾은 기억 (D1 · 점심 · 학교 옥상)
 
@@ -3217,7 +3218,7 @@ const STORY_DATA = {
         next: 'y3'
       },
       y3: {
-        background: 'Assets/배경/등굣길.png',
+        background: 'Assets/배경/유메/등굣길.png',
         sprite: 'Assets/유메/유메 기본.png',
         text: `[S#3] 등굣길의 소개 (D2 · 오전 · 등굣길)
 
@@ -3308,7 +3309,7 @@ const STORY_DATA = {
         next: 'y4'
       },
       y4: {
-        background: '',
+        background: 'Assets/배경/유메/하굣길.png',
         sprite: 'Assets/유메/유메 기본.png',
         text: `[S#4] 첫 데이트 제안 (D2 · 오후 · 하굣길)
 
@@ -3324,7 +3325,7 @@ const STORY_DATA = {
         ]
       },
       y5: {
-        background: 'Assets/배경/서점.png',
+        background: 'Assets/배경/유메/도서관.png',
         text: `[S#5] 서점에서의 공부 (D3 · 오후 · 대형 서점의 카페 공간)
 
 유메는 평소와 달리 안경을 쓰고 약속 장소에 나타난다.
@@ -3374,6 +3375,7 @@ const STORY_DATA = {
         next: 'y11'
       },
       y6: {
+        background: 'Assets/배경/유메/영화관.png',
         point: 1,
         text: `[S#6] 영화와 쇼핑 (D3 · 오후 · 영화관, 백화점)
 
@@ -3381,9 +3383,12 @@ const STORY_DATA = {
 
 영화가 시작되고, 유메는 중요한 장면마다 주인공의 반응을 확인한다.
 
-"나는 ○○군이랑 같이 봐서 재미있어."
-
-영화가 끝난 뒤 백화점에서 유메는 여러 옷을 골라 보여 준다.
+"나는 ○○군이랑 같이 봐서 재미있어."`,
+        next: 'y6_shop'
+      },
+      y6_shop: {
+        background: 'Assets/배경/유메/백화점 옷가게.png',
+        text: `영화가 끝난 뒤 백화점에서 유메는 여러 옷을 골라 보여 준다.
 
 "그럼 제대로 골라 줘. ○○군이 가장 좋아하는 걸로. 오늘은 ○○군에게 보여 주려고 고르는 거니까."
 
@@ -3395,6 +3400,7 @@ const STORY_DATA = {
         next: 'y7'
       },
       y7: {
+        background: 'Assets/배경/유메/백화점 디폴트.png',
         sprite: 'Assets/유메/유메 의문.png',
         text: `[S#7] 비와 호텔 제안 (D3 · 저녁 · 백화점 근처 길)
 
@@ -3416,6 +3422,7 @@ const STORY_DATA = {
         ]
       },
       y7_cafe: {
+        background: 'Assets/배경/유메/24시간 카페.png',
         sprite: 'Assets/유메/유메 기본.png',
         text: `"알겠어. ○○군이 불편하다면 억지로 갈 필요는 없으니까. 조금 아쉽기는 하지만 이해해."
 
@@ -3427,6 +3434,7 @@ const STORY_DATA = {
         next: 'y11'
       },
       y8: {
+        background: 'Assets/배경/주인공 방.png',
         sprite: 'Assets/유메/유메 잠옷.png',
         text: `[S#8] 같은 방에서 보낸 밤 (D3 · 밤 · 호텔 객실)
 
@@ -3473,6 +3481,7 @@ const STORY_DATA = {
         next: 'y10'
       },
       y9: {
+        background: 'Assets/배경/유메/고구마 농장.png',
         sprite: 'Assets/유메/유메 체육복.png',
         point: 2,
         text: `[S#9] 고구마 캐기 축제 (D3 · 오전~오후 · 농장)
@@ -3495,7 +3504,7 @@ const STORY_DATA = {
         next: 'y11'
       },
       y10: {
-        background: 'Assets/배경/등굣길.png',
+        background: 'Assets/배경/유메/학교가 보이는 등굣길.png',
         sprite: 'Assets/유메/유메 기본.png',
         text: `[S#10] 다시 만난 친구들의 오해 (D4 · 아침 · 등굣길)
 
@@ -3595,7 +3604,7 @@ const STORY_DATA = {
         next: 'y12'
       },
       y12: {
-        background: '',
+        background: 'Assets/배경/유메/등굣길.png',
         sprite: 'Assets/유메/유메 동의.png',
         text: `[S#12] 바다 데이트 제안 (D4 · 오후 · 공원)
 
@@ -3613,6 +3622,7 @@ const STORY_DATA = {
         next: 'y13'
       },
       y13: {
+        background: 'Assets/배경/유메/바다.png',
         sprite: 'Assets/유메/유메 기본.png',
         text: `[S#13] 바다 데이트 (D5 · 낮 · 바닷가)
 
@@ -3698,7 +3708,7 @@ const STORY_DATA = {
       },
       y_end_good: {
         sprite: 'Assets/유메/유메 기본.png',
-        background: '',
+        background: 'Assets/배경/유메/회사.png',
         text: `[Good End] 다섯 해 뒤의 재회
 
 졸업을 앞두고 두 사람은 서로 다른 진로를 선택하고, 점점 연락이 줄어들다 결국 헤어진다.
@@ -3719,7 +3729,7 @@ const STORY_DATA = {
         endingLabel: '🌅 GOOD END — 다섯 해 뒤의 재회'
       },
       y_end_normal: {
-        background: 'Assets/배경/등굣길.png',
+        background: 'Assets/배경/유메/하굣길.png',
         sprite: 'Assets/유메/유메 기본.png',
         text: `[Normal End] 가장 가까운 친구
 
