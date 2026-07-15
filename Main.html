@@ -5793,6 +5793,16 @@ function triggerGameOver() {
   }, wait);
 }
 
+/* 검열어 입력 시 캐릭터별 부정 반응 (AI 호출 없이 결정론적으로 처리) */
+const PROFANITY_REACTIONS = {
+  miko:   { line: '지금……뭐라고 한 거야?! 그런 말을 아무렇지도 않게 하다니, 최악이야. 다시 그딴 식으로 말하면 두 번 다시 안 봐.', emotion: '화남' },
+  tsuki:  { line: '……방금 그 말, 진심이야? 아무리 나라도 그런 말은 상처야. 실망했어.', emotion: '서운함' },
+  taro:   { line: '어이… 그런 험한 말은 좀 아니지 않냐. 후욱… 기분 확 상했다.', emotion: '화남' },
+  yume:   { line: '……지금 그 말, 나한테 한 거야? 너무 심하잖아. 그런 말 들으니까 눈물 날 것 같아.', emotion: '서운함' },
+  mafuyu: { line: '히익…! 그, 그런 무서운 말은…… 저, 상처받았어요. 왜 그런 말을 하는 거예요……', emotion: '서운함' },
+  _default: { line: '……방금 그 말은 너무 심하잖아. 그런 말을 들으니 정말 속상해.', emotion: '서운함' }
+};
+
 /* ── 전송 흐름 ──
    1) 사용자 대사를 파란 대사창으로 표시
    2) AI 응답 도착하면 캐릭터 대사창으로 전환 */
@@ -5820,6 +5830,32 @@ async function send() {
   sendBtn.disabled = true;
 
   showLine(USER_NAME, '"' + text + '"', true);
+
+  // 검열어를 입력하면 : AI를 거치지 않고 반드시 부정적으로 반응하고 호감도를 무조건 감소시킨다
+  if (censored.count > 0) {
+    const penalty = -Math.min(30, 5 * censored.count);   // 검열어 1건당 -5, 최대 -30 (항상 감소)
+    affection += penalty;
+    updateGauge();
+    showToast(penalty, '비속어 사용');
+
+    const react = PROFANITY_REACTIONS[activeCharId] || PROFANITY_REACTIONS._default;
+    // 기록에도 남겨 이후 AI 대화 맥락 유지 (askAI와 동일한 형식)
+    history.push({ role: 'user', content: text });
+    history.push({ role: 'assistant', content: JSON.stringify(
+      { reply: react.line, affection_delta: penalty, emotion: react.emotion }) });
+
+    // 호감도가 음수가 되면 강제종료
+    if (affection < 0) { triggerGameOver(); return; }
+
+    currentEmotion = react.emotion;
+    setSprite(currentEmotion);
+    showLine(CHARACTER.name, '"' + react.line + '"', false);
+
+    input.disabled = false;
+    sendBtn.disabled = false;
+    input.focus();
+    return;
+  }
 
   try {
     const result = await askAI(text);
