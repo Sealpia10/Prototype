@@ -5793,7 +5793,9 @@ function triggerGameOver() {
   }, wait);
 }
 
-/* 검열어 입력 시 캐릭터별 부정 반응 (AI 호출 없이 결정론적으로 처리) */
+/* 검열어 입력 시 부정 반응 폴백 — AI(LM Studio 등) 연결 실패 시에만 사용하는
+   캐릭터별 결정론적 반응. 정상 연결 시에는 원본 비속어를 모델에 그대로 보내
+   모델이 다양한 부정 반응을 직접 생성한다. */
 const PROFANITY_REACTIONS = {
   miko:   { line: '지금……뭐라고 한 거야?! 그런 말을 아무렇지도 않게 하다니, 최악이야. 다시 그딴 식으로 말하면 두 번 다시 안 봐.', emotion: '화남' },
   tsuki:  { line: '……방금 그 말, 진심이야? 아무리 나라도 그런 말은 상처야. 실망했어.', emotion: '서운함' },
@@ -5811,14 +5813,16 @@ async function send() {
   const rawText = input.value.trim();
   if (!rawText) return;
 
-  // 비속어 검열 : 전송 직전에 마스킹 (화면 표시·AI 전달 모두 검열된 문장 사용)
+  // 검열은 '화면 표시'에만 적용한다. LLM(LM Studio 등)에는 원본을 그대로 보내
+  // 모델이 비속어(사용자가 추가한 검열어 포함)에 대해 다양한 부정 반응을 생성하도록 유도한다.
   const censored = censorUserText(rawText);
-  const text = censored.text;
-  if (censored.count > 0) {
+  const displayText = censored.text;          // 화면 표시용(마스킹)
+  const hasProfanity = censored.count > 0;
+  if (hasProfanity) {
     try {
       const t = document.createElement('div');
       t.className = 'toast down';
-      t.innerHTML = '<span>🛡</span><span>비속어 ' + censored.count + '건이 검열되었습니다</span>';
+      t.innerHTML = '<span>🛡</span><span>비속어 ' + censored.count + '건 검열 (화면 표시에만 적용)</span>';
       toastArea.appendChild(t);
       requestAnimationFrame(() => t.classList.add('in'));
       setTimeout(() => { t.classList.remove('in'); setTimeout(() => t.remove(), 350); }, 2600);
@@ -5829,40 +5833,17 @@ async function send() {
   input.disabled = true;
   sendBtn.disabled = true;
 
-  showLine(USER_NAME, '"' + text + '"', true);
-
-  // 검열어를 입력하면 : AI를 거치지 않고 반드시 부정적으로 반응하고 호감도를 무조건 감소시킨다
-  if (censored.count > 0) {
-    const penalty = -Math.min(30, 5 * censored.count);   // 검열어 1건당 -5, 최대 -30 (항상 감소)
-    affection += penalty;
-    updateGauge();
-    showToast(penalty, '비속어 사용');
-
-    const react = PROFANITY_REACTIONS[activeCharId] || PROFANITY_REACTIONS._default;
-    // 기록에도 남겨 이후 AI 대화 맥락 유지 (askAI와 동일한 형식)
-    history.push({ role: 'user', content: text });
-    history.push({ role: 'assistant', content: JSON.stringify(
-      { reply: react.line, affection_delta: penalty, emotion: react.emotion }) });
-
-    // 호감도가 음수가 되면 강제종료
-    if (affection < 0) { triggerGameOver(); return; }
-
-    currentEmotion = react.emotion;
-    setSprite(currentEmotion);
-    showLine(CHARACTER.name, '"' + react.line + '"', false);
-
-    input.disabled = false;
-    sendBtn.disabled = false;
-    input.focus();
-    return;
-  }
+  showLine(USER_NAME, '"' + displayText + '"', true);   // 화면엔 마스킹된 문장만 노출
 
   try {
-    const result = await askAI(text);
-    const delta = parseInt(result.affection_delta) || 0;
+    // LLM에는 원본(비속어 포함)을 그대로 전달 → 모델이 상황에 맞는 다양한 부정 반응을 생성
+    const result = await askAI(rawText);
+    let delta = parseInt(result.affection_delta) || 0;
+    // 검열어가 포함됐다면 호감도는 반드시 감소 (모델이 0/양수를 반환해도 하한 -5 강제)
+    if (hasProfanity) delta = Math.min(delta, -5);
     affection += delta;
     updateGauge();
-    showToast(delta, result.reason || '');
+    showToast(delta, result.reason || (hasProfanity ? '비속어 사용' : ''));
 
     // 호감도가 음수가 되면 강제종료 (이때는 감정 판단 없이 전용 이미지 사용)
     if (affection < 0) {
@@ -5870,14 +5851,31 @@ async function send() {
       return;
     }
 
-    // 대화 맥락(AI 판단)에 맞는 표정으로 교체
-    currentEmotion = result.emotion || "기본";
+    // 대화 맥락(AI 판단)에 맞는 표정으로 교체 (비속어인데 표정이 없으면 화남)
+    currentEmotion = result.emotion || (hasProfanity ? '화남' : '기본');
     setSprite(currentEmotion);
-    showLine(CHARACTER.name, '"' + result.reply + '"', false);
+    // 화면 표시는 검열 유지 : 모델 답변이 비속어를 되풀이해도 UI에는 마스킹해 노출
+    showLine(CHARACTER.name, '"' + censorUserText(result.reply).text + '"', false);
   } catch (err) {
     console.error(err);
     logError('AI 응답', (err && err.message) ? err.message : String(err));
-    showLine(CHARACTER.name, "(…통신이 불안정한 것 같아. 다시 한 번 말해 줄래?)", false);
+    if (hasProfanity) {
+      // AI 연결 실패 시에도 검열어에는 반드시 부정 반응 + 호감도 감소를 보장 (결정론적 폴백)
+      const penalty = -Math.min(30, 5 * censored.count);
+      const react = PROFANITY_REACTIONS[activeCharId] || PROFANITY_REACTIONS._default;
+      history.push({ role: 'user', content: rawText });
+      history.push({ role: 'assistant', content: JSON.stringify(
+        { reply: react.line, affection_delta: penalty, emotion: react.emotion }) });
+      affection += penalty;
+      updateGauge();
+      showToast(penalty, '비속어 사용');
+      if (affection < 0) { triggerGameOver(); return; }
+      currentEmotion = react.emotion;
+      setSprite(currentEmotion);
+      showLine(CHARACTER.name, '"' + react.line + '"', false);
+    } else {
+      showLine(CHARACTER.name, "(…통신이 불안정한 것 같아. 다시 한 번 말해 줄래?)", false);
+    }
   } finally {
     if (!isGameOver) {
       input.disabled = false;
